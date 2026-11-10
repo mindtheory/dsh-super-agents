@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
+  "checkedAt": "2026-11-10T06:19:00-05:00",
+  "repo": {
+    "path": "/home/canetwork/dsh/dsh-super-agents",
+    "head": "c41f0fdb356a1a6f50aa939375bfe547d10a5df0",
+    "version": "0.1.0"
+  },
+  "dsh": {
+    "version": "0.2.1-rc.2",
+    "binVersion": "0.2.1-rc.2",
+    "packageJson": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh/package.json",
+    "installDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh"
+  },
+  "officialPackages": {
+    "baseDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai",
+    "packageCount": 305,
+    "mtimeMeaning": "max mtime of any file inside the package dir, from find -printf %T@ | sort -rn | head -1",
+    "tracked": {
+      "dsh-base": {
+        "dir": "dsh-base",
+        "mtime": 1792548722.1601968,
+        "mtimeIso": "2026-10-21T02:12:02.160Z",
+        "latestFile": "dsh-base/cordis.patch.yml"
+      },
+      "dsh-schedule": {
+        "dir": "dsh-schedule",
+        "mtime": 1792548740.8563118,
+        "mtimeIso": "2026-10-21T02:12:20.856Z",
+        "latestFile": "dsh-schedule/node_modules/zod/src/v4/core/zsf.ts"
+      },
+      "dsh-agent": {
+        "dir": "dsh-agent",
+        "mtime": 1792548723.7282064,
+        "mtimeIso": "2026-10-21T02:12:03.728Z",
+        "latestFile": "dsh-agent/README.i18n.yaml"
+      },
+      "dsh-skill": {
+        "dir": "dsh-skill",
+        "mtime": 1792548722.360198,
+        "mtimeIso": "2026-10-21T02:12:02.360Z",
+        "latestFile": "dsh-skill/README.i18n.yaml"
+      },
+      "dsh-goals": {
+        "dir": null,
+        "mtime": null,
+        "mtimeIso": null,
+        "absent": true,
+        "resolution": "No package named dsh-goals exists in this install. The real packages are singular: dsh-goal (+ dsh-tool-goal, dsh-goal-round-driver). Track the resolved entries under resolvedTracked instead."
+      },
+      "dsh-subagents": {
+        "dir": null,
+        "mtime": null,
+        "mtimeIso": null,
+        "absent": true,
+        "resolution": "No package named dsh-subagents exists in this install. The real packages are singular: dsh-subagent (+ dsh-tool-subagent, dsh-tool-subagent-control, dsh-subagent-fork-in-process, dsh-subagent-spawn-in-process). Track the resolved entries under resolvedTracked instead."
+      }
+    },
+    "resolvedTracked": {
+      "dsh-goal": {
+        "mtime": 1792548740.8563118,
+        "mtimeIso": "2026-10-21T02:12:20.856Z",
+        "latestFile": "dsh-goal/node_modules/zod/src/v4/core/zsf.ts"
+      },
+      "dsh-tool-goal": {
+        "mtime": 1792548722.5521991,
+        "mtimeIso": "2026-10-21T02:12:02.552Z",
+        "latestFile": "dsh-tool-goal/README.i18n.yaml"
+      },
+      "dsh-subagent": {
+        "mtime": 1792548740.8523118,
+        "mtimeIso": "2026-10-21T02:12:20.852Z",
+        "latestFile": "dsh-subagent/node_modules/zod/src/v4/core/zsf.ts"
+      },
+      "dsh-tool-subagent": {
+        "mtime": 1792548740.8523118,
+        "mtimeIso": "2026-10-21T02:12:20.852Z",
+        "latestFile": "dsh-tool-subagent/node_modules/zod/src/v4/core/zsf.ts"
+      },
+      "dsh-experimental-agent-team": {
+        "mtime": 1792548740.8563118,
+        "mtimeIso": "2026-10-21T02:12:20.856Z",
+        "latestFile": "dsh-experimental-agent-team/node_modules/zod/src/v4/core/zsf.ts"
+      }
+    }
+  },
+  "lobehub": {
+    "repo": "lobehub/lobehub",
+    "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=1",
+    "sha": "3e750d654b4b9ee00bf791c6aa72b39f0d8d7b05",
+    "commitDate": "2026-11-10T10:53:45Z",
+    "message": "fix(page-collab): keep one Yjs tree per page with durable rooms and conditional server writes (#22695)",
+    "fetchFailed": false
+  },
+  "web": {
+    "lastQuery": null,
+    "lastResultNote": "not attempted on baseline run"
+  },
+  "testBaseline": {
+    "unit": "8/8 pass",
+    "smoke": "SMOKE OK: 7 tools, 5 routes, scheduler fired & failed gracefully",
+    "allGreen": true
+  },
+  "processed": []
+}

@@ -1,0 +1,25 @@
+# dsh-super-agents bundle patch: mounts the super-agents plugin.
+# The node half (exports ".") registers sa_* tools + scheduler + run runner +
+# panel HTTP API; the client half (exports "./client") adds the Web GUI panel.
+#
+# Override any of this in your profile's own cordis.patch.yml (it layers after
+# bundle patches). Config fields:
+#   dataDir        ledger root; empty = $DSH_HOME/dsh-super-agents (recommended)
+#   defaultModel   "provider/model" for runs when an agent has no model set;
+#                  empty = the host's default model
+#   defaultCwd     fallback working directory for runs; empty = host process cwd
+#   maxConcurrent  parallel worker cap; extra runs queue
+#   runTimeoutMs   hard limit per run (default 30 min), then cancelled
+#   tickSeconds    scheduler tick interval (seconds, min 10)
+#   allowLanState  let non-loopback GUI clients use the panel API
+- insert:
+    - id: super-agents
+      name: 'dsh-super-agents'
+      config:
+        dataDir: ''
+        defaultModel: ''
+        maxConcurrent: 2
+        runTimeoutMs: 1800000
+        tickSeconds: 30
+        allowLanState: true
+# reload-trigger 1794306263

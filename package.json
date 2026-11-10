@@ -1,0 +1,63 @@
+{
+  "name": "dsh-super-agents",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Super agents for DeepSeek Harness: persistent agent personas that take on work by themselves (schedules/heartbeats) and get better every run (playbook learning). Inspired by lobehub/lobehub's super-agent model, built on DSH primitives.",
+  "license": "MIT",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "skills/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/unit.test.js && node test/smoke.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crazyasp/dsh-super-agents.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "cordis",
+    "super-agent",
+    "agent",
+    "scheduler",
+    "automation"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.5"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.0"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  }
+}

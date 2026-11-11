@@ -1,22 +1,37 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-10T06:19:00-05:00",
+  "checkedAt": "2026-11-11T13:05:00-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
-    "head": "c41f0fdb356a1a6f50aa939375bfe547d10a5df0",
+    "head": "5ddc501746849346e53f013dd76783456b20015f",
     "version": "0.1.0"
   },
   "dsh": {
     "version": "0.2.1-rc.2",
     "binVersion": "0.2.1-rc.2",
     "packageJson": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh/package.json",
-    "installDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh"
+    "installDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh",
+    "upstream": {
+      "repo": "deepseek-ai/deepseek-harness",
+      "latestReleaseTag": "dsh-v0.2.2-rc.2",
+      "latestReleaseAt": "2026-11-11T11:33:06Z",
+      "npmDistTagLatest": "0.2.2-rc.1",
+      "upgradeAvailable": true,
+      "headlineChanges": [
+        "SubAgent 支持具名、多层协作；AgentTeam 按会话开启并改用统一具名子代理（中断工具默认关闭，属破坏性变更，自定义插件/SDK 集成需迁移）",
+        "模型请求重试可在模型设置中配置条件/次数/等待时间",
+        "工具失败提供更明确的错误类型与代码",
+        "PTC 重复等待子代理消息不再反复唤醒（同一条消息只唤醒一次）"
+      ],
+      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.2。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。"
+    }
   },
   "officialPackages": {
     "baseDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai",
     "packageCount": 305,
-    "mtimeMeaning": "max mtime of any file inside the package dir, from find -printf %T@ | sort -rn | head -1",
+    "mtimeMeaning": "max mtime of a source file inside the package dir, from find -path '*/node_modules' -prune -o -type f -printf %T@ | sort -rn | head -1. node_modules is pruned so zod unpacking artifacts cannot masquerade as source changes.",
+    "mtimeMethodNote": "2026-11-11 起改用 pruned 采集。上一版 dsh-schedule/dsh-goal/dsh-subagent 等值来自 node_modules/zod 解包产物，本次已修正为源码 mtime；两版差异属测量方法修正，不是上游变更。",
     "tracked": {
       "dsh-base": {
         "dir": "dsh-base",
@@ -26,9 +41,9 @@
       },
       "dsh-schedule": {
         "dir": "dsh-schedule",
-        "mtime": 1792548740.8563118,
-        "mtimeIso": "2026-10-21T02:12:20.856Z",
-        "latestFile": "dsh-schedule/node_modules/zod/src/v4/core/zsf.ts"
+        "mtime": 1792548724.0682085,
+        "mtimeIso": "2026-10-21T02:12:04.068Z",
+        "latestFile": "dsh-schedule/README.i18n.yaml"
       },
       "dsh-agent": {
         "dir": "dsh-agent",
@@ -59,48 +74,82 @@
     },
     "resolvedTracked": {
       "dsh-goal": {
-        "mtime": 1792548740.8563118,
-        "mtimeIso": "2026-10-21T02:12:20.856Z",
-        "latestFile": "dsh-goal/node_modules/zod/src/v4/core/zsf.ts"
+        "mtime": 1792548723.7042063,
+        "mtimeIso": "2026-10-21T02:12:03.704Z",
+        "latestFile": "dsh-goal/README.i18n.yaml"
       },
       "dsh-tool-goal": {
-        "mtime": 1792548722.5521991,
+        "mtime": 1792548722.5521992,
         "mtimeIso": "2026-10-21T02:12:02.552Z",
         "latestFile": "dsh-tool-goal/README.i18n.yaml"
       },
       "dsh-subagent": {
-        "mtime": 1792548740.8523118,
-        "mtimeIso": "2026-10-21T02:12:20.852Z",
-        "latestFile": "dsh-subagent/node_modules/zod/src/v4/core/zsf.ts"
+        "mtime": 1792548725.0282144,
+        "mtimeIso": "2026-10-21T02:12:05.028Z",
+        "latestFile": "dsh-subagent/README.i18n.yaml"
       },
       "dsh-tool-subagent": {
-        "mtime": 1792548740.8523118,
-        "mtimeIso": "2026-10-21T02:12:20.852Z",
-        "latestFile": "dsh-tool-subagent/node_modules/zod/src/v4/core/zsf.ts"
+        "mtime": 1792548723.0962025,
+        "mtimeIso": "2026-10-21T02:12:03.096Z",
+        "latestFile": "dsh-tool-subagent/README.i18n.yaml"
       },
       "dsh-experimental-agent-team": {
-        "mtime": 1792548740.8563118,
-        "mtimeIso": "2026-10-21T02:12:20.856Z",
-        "latestFile": "dsh-experimental-agent-team/node_modules/zod/src/v4/core/zsf.ts"
+        "mtime": 1792548724.32021,
+        "mtimeIso": "2026-10-21T02:12:04.320Z",
+        "latestFile": "dsh-experimental-agent-team/README.i18n.yaml"
       }
     }
   },
+  "prototypeRepo": {
+    "repo": "deepseek-ai/dsh-superagent-prototype",
+    "latestCommit": "8c32a9dc5d72",
+    "commitDate": "2026-10-31T12:05:39Z",
+    "message": "feat: add the dsh-superagent research prototype",
+    "pushedAt": "2026-11-03T09:29:14Z",
+    "changed": false,
+    "note": "上游原型 repo 自基线前即无新提交；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。"
+  },
   "lobehub": {
     "repo": "lobehub/lobehub",
-    "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=1",
-    "sha": "3e750d654b4b9ee00bf791c6aa72b39f0d8d7b05",
-    "commitDate": "2026-11-10T10:53:45Z",
-    "message": "fix(page-collab): keep one Yjs tree per page with durable rooms and conditional server writes (#22695)",
-    "fetchFailed": false
+    "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=3",
+    "sha": "efd8d0dc5a261167674954501fa4bf4c0e60f429",
+    "commitDate": "2026-11-11T17:49:03Z",
+    "message": "fix(chat-input): Send now interrupts a run that is still taking the queued message (#22838)",
+    "previousSha": "3e750d654b4b9ee00bf791c6aa72b39f0d8d7b05",
+    "fetchFailed": false,
+    "note": "新提交为 chat-input 中断正在取队列消息的运行；与 super-agent 模型无直接关系，不移植。"
   },
   "web": {
-    "lastQuery": null,
-    "lastResultNote": "not attempted on baseline run"
+    "lastQuery": "DeepSeek Harness super agent plugin | dsh-superagent-prototype github | DeepSeek Harness 0.2 super agent",
+    "lastResultNote": "检索到上游原型 repo、0.2.x 讨论与新闻稿，无超越官方 release notes 的新能力信息。"
   },
   "testBaseline": {
-    "unit": "8/8 pass",
-    "smoke": "SMOKE OK: 7 tools, 5 routes, scheduler fired & failed gracefully",
-    "allGreen": true
+    "unit": "18/18 pass",
+    "smoke": "SMOKE OK: 8 tools, 7 routes, scheduler fired & failed gracefully",
+    "allGreen": true,
+    "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。"
   },
-  "processed": []
+  "processed": [
+    {
+      "date": "2026-11-10",
+      "id": "baseline",
+      "title": "建立监控基线（无功能改动）",
+      "action": "baseline",
+      "commit": null
+    },
+    {
+      "date": "2026-11-11",
+      "id": "upstream-0.2.2-rc.2",
+      "title": "上游 DSH 发布 0.2.2-rc.2（SubAgent 具名多层协作 / AgentTeam 迁移 / 可配置重试）",
+      "action": "评估：不升级本机安装（红线），记录 headlineChanges 待人工决定升级；重试能力按可移植项落地",
+      "commit": null
+    },
+    {
+      "date": "2026-11-11",
+      "id": "retry-transient",
+      "title": "瞬时错误自动续跑（R2 中此前计划未实现的一项）",
+      "action": "implemented",
+      "commit": "5ddc501"
+    }
+  ]
 }

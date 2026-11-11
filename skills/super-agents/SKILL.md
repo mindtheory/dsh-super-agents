@@ -24,7 +24,7 @@ description: DSH 超级智能体（dsh-super-agents 插件）：创建持久化 
 1. **建角色**：`sa_agent create`，systemRole 写清楚职责、口吻、验收标准。模型留空则用插件默认（本机通常是本地模型，适合高频任务）。
 2. **派活**：`sa_run`。任务文本要**具体、可验收**（"把 X 目录的 TODO 汇总成清单写入 Y" 而不是 "整理代码"）。
 3. **回收**：轮询 `sa_runs`（running→done），`sa_run_result` 拿交付物。交付物是 agent 写入 result 文件的完整内容，第一行是一句话结论。
-4. **自主运行**：`sa_schedule set` 给某 agent 挂 cron（如 `0 9 * * 1-5` 工作日九点）或 everySeconds。到点自动跑，产物照常落盘。
+4. **自主运行**：`sa_schedule set` 给某 agent 挂 cron（如 `0 9 * * 1-5` 工作日九点）或 everySeconds。到点自动跑，产物照常落盘。cron 默认按主机本地时区匹配；用户说"北京时间 X 点"而主机不在东八区时，传 `tz: "Asia/Shanghai"`。
 5. **变强**：learn 开启时，每次 done 后自动跑一次 reflection，把 ≤8 条可复用教训追加进该 agent 的 playbook；playbook 会在该 agent 之后每次派活时注入其提示词（滚动上限 60 条）。
 
 ## 注意

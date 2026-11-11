@@ -58,7 +58,7 @@ Override in your profile's own `cordis.patch.yml` (it layers after bundle patche
 | `sa_runs` | List runs (`queued/running/done/done_no_artifact/failed/timeout/interrupted`) |
 | `sa_run_result` | Fetch a run's full artifact |
 | `sa_say` | Follow-up message into a run's session |
-| `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at) / `list` / `delete` |
+| `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` / `delete` |
 | `sa_learn` | Append lessons manually, or distill from a finished run |
 
 A matching **skill** (`super-agents`) is registered so the host model knows when and how to use these tools.
@@ -67,11 +67,15 @@ A matching **skill** (`super-agents`) is registered so the host model knows when
 
 ```text
 sa_agent create   → "日报员", systemRole=..., model=provider/model
-sa_schedule set   → cron "0 9 * * 1-5", prompt="汇总昨日提交记录写入 report.md"
+sa_schedule set   → cron "0 9 * * 1-5", tz="Asia/Shanghai", prompt="汇总昨日提交记录写入 report.md"
 (auto)            → every weekday 09:00 a run fires, artifact lands in <cwd>/.sa-results/
 (auto)            → reflection distills lessons into the agent playbook
 sa_run_result     → collect any run's artifact anytime
 ```
+
+> Cron expressions are matched against the **host's local clock** by default.
+> Pass `tz` (an IANA zone such as `Asia/Shanghai`) when the schedule should keep
+> wall-clock time in a zone other than the host's — DST is handled for you.
 
 ## How a run works
 

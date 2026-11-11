@@ -107,7 +107,53 @@ function parseCron(expr) {
   return spec;
 }
 
-function cronMatches(spec, date) {
+// IANA zone → wall-clock parts of `date` in that zone (host-local when tz is empty).
+// Returns null for an invalid zone so callers can fall back instead of throwing.
+function zonedParts(date, tz) {
+  if (!tz) return null;
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", weekday: "short",
+    });
+    const parts = {};
+    for (const { type, value } of fmt.formatToParts(date)) parts[type] = value;
+    const dow = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[parts.weekday];
+    if (dow === undefined) return null;
+    return {
+      minute: Number(parts.minute),
+      hour: Number(parts.hour),
+      day: Number(parts.day),
+      month: Number(parts.month),
+      dow,
+      key: `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isValidTz(tz) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cronMatches(spec, date, tz) {
+  const z = zonedParts(date, tz);
+  if (z) {
+    return (
+      spec.minute.has(z.minute) &&
+      spec.hour.has(z.hour) &&
+      spec.dom.has(z.day) &&
+      spec.month.has(z.month) &&
+      spec.dow.has(z.dow)
+    );
+  }
   return (
     spec.minute.has(date.getMinutes()) &&
     spec.hour.has(date.getHours()) &&
@@ -117,7 +163,9 @@ function cronMatches(spec, date) {
   );
 }
 
-function minuteKey(date) {
+function minuteKey(date, tz) {
+  const z = zonedParts(date, tz);
+  if (z) return z.key;
   const p = (n) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
 }
@@ -440,9 +488,9 @@ function makeScheduler(config, ledger, runner, state) {
       if (s.kind === "cron") {
         const spec = parseCron(s.cron);
         if (!spec) continue;
-        const key = minuteKey(now);
+        const key = minuteKey(now, s.tz);
         if (s.lastFiredMinute === key) continue; // occurrence dedup
-        if (cronMatches(spec, now)) out.push({ s, occ: key });
+        if (cronMatches(spec, now, s.tz)) out.push({ s, occ: key });
       }
     }
     return out;
@@ -682,6 +730,7 @@ function registerTools(ctx, config, ledger, runner, scheduler, state) {
       agentId: { type: "string", description: "set 必填：目标 agent" },
       prompt: { type: "string", description: "set 必填：到点执行的任务文本" },
       cron: { type: "string", description: "set：5 字段 cron（分 时 日 月 周），如 '0 9 * * 1-5' 工作日九点" },
+      tz: { type: "string", description: "set：cron 的 IANA 时区（如 Asia/Shanghai）；留空按主机本地时区" },
       everySeconds: { type: "integer", description: "set：固定间隔秒数（>=60）" },
       at: { type: "string", description: "set：一次性时刻 ISO 字符串（如 2026-11-11T09:00:00+08:00）" },
       title: { type: "string", description: "set：调度名（可选）" },
@@ -700,8 +749,9 @@ function registerTools(ctx, config, ledger, runner, scheduler, state) {
         let spec = {};
         if (args.cron) {
           if (!parseCron(args.cron)) throw new Error(`非法 cron 表达式: ${args.cron}（需 5 字段：分 时 日 月 周）`);
+          if (args.tz && !isValidTz(String(args.tz))) throw new Error(`非法时区: ${args.tz}（需 IANA 名，如 Asia/Shanghai）`);
           kind = "cron";
-          spec = { cron: String(args.cron).trim() };
+          spec = { cron: String(args.cron).trim(), tz: args.tz ? String(args.tz).trim() : "" };
         } else if (args.everySeconds) {
           if (args.everySeconds < 60) throw new Error("everySeconds 至少 60");
           kind = "every";
@@ -985,7 +1035,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, makeLedger, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, makeLedger, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir };
 
 export function apply(ctx, config) {
   const resolved = config || {};

@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, makeLedger, appendPlaybook, readPlaybook, buildTaskPrompt } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, makeLedger, appendPlaybook, readPlaybook, buildTaskPrompt } = __internals;
 
 test("cron: basic wildcards and ranges", () => {
   const spec = parseCron("0 9 * * 1-5");
@@ -49,6 +49,27 @@ test("cron: invalid expressions rejected", () => {
 
 test("minuteKey format", () => {
   assert.equal(minuteKey(new Date(2026, 10, 9, 8, 5)), "2026-11-09T08:05");
+});
+
+test("cron: IANA tz shifts wall-clock matching (host-tz independent)", () => {
+  const spec = parseCron("0 2 * * *");
+  // 2026-11-10 02:00 Asia/Shanghai (UTC+8, no DST) == 2026-11-09 18:00 UTC
+  const instant = new Date("2026-11-09T18:00:00Z");
+  assert.ok(cronMatches(spec, instant, "Asia/Shanghai"));
+  assert.ok(!cronMatches(spec, instant, "America/New_York")); // 13:00 EST there
+  assert.equal(minuteKey(instant, "Asia/Shanghai"), "2026-11-10T02:00");
+  assert.equal(minuteKey(instant, "America/New_York"), "2026-11-09T13:00");
+  // empty tz falls back to host-local parts
+  assert.equal(minuteKey(instant, ""), minuteKey(instant));
+});
+
+test("tz validation", () => {
+  assert.ok(isValidTz("Asia/Shanghai"));
+  assert.ok(isValidTz("America/New_York"));
+  assert.ok(!isValidTz("Mars/Olympus"));
+  assert.ok(!isValidTz(""));
+  assert.equal(zonedParts(new Date(), "Mars/Olympus"), null);
+  assert.ok(zonedParts(new Date(), "Asia/Shanghai"));
 });
 
 test("ledger: atomic round-trip and run trimming", () => {

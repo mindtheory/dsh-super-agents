@@ -2,5 +2,6 @@ node_modules/
 *.log
 .DS_Store
 .super-agents/
+.sa-results/
 *.tsbuildinfo
 npm-debug.log*

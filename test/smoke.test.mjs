@@ -29,10 +29,11 @@ const ctx = {
 apply(ctx, { dataDir: dir, defaultModel: "local-qwen/test", tickSeconds: 10 });
 
 // tools registered
-assert.deepEqual(registered.tools.sort(), ["sa_agent", "sa_learn", "sa_run", "sa_run_result", "sa_runs", "sa_say", "sa_schedule"].sort());
-// routes registered
-assert.equal(registered.routes.length, 5);
+assert.deepEqual(registered.tools.sort(), ["sa_agent", "sa_health", "sa_learn", "sa_run", "sa_run_result", "sa_runs", "sa_say", "sa_schedule"].sort());
+// routes registered (state, run, agent-save, agent-delete, run-detail, health)
+assert.equal(registered.routes.length, 6);
 assert.ok(registered.routes.map((r) => r.path).includes("/api/dsh-super-agents/state"));
+assert.ok(registered.routes.map((r) => r.path).includes("/api/dsh-super-agents/health"));
 // system prompt section + skill
 assert.ok(registered.sections.includes("super-agents"));
 assert.equal(registered.skills.length, 1);

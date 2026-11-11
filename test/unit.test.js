@@ -13,7 +13,27 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, makeLedger, appendPlaybook, readPlaybook, buildTaskPrompt } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt } = __internals;
+
+test("key: deterministic id (equal inputs -> equal id)", () => {
+  assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
+  assert.notEqual(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T03:00"));
+  assert.match(key("a"), /^[0-9a-f]{16}$/);
+});
+
+test("health: single writer per entry, release drops late writes", () => {
+  const h = makeHealth();
+  assert.ok(h.claim("runner", "runner"));
+  assert.ok(!h.claim("runner", "scheduler")); // second claimant refused
+  assert.ok(h.set("runner", "ok", ""));
+  assert.ok(!h.set("unclaimed", "error", "x")); // no writer -> dropped
+  h.release("runner", "runner");
+  assert.ok(!h.set("runner", "error", "late")); // after release: no-op
+  h.claim("runner", "scheduler"); // re-claimable after release
+  h.set("runner", "error", "boom");
+  assert.equal(h.problems().length, 1);
+  assert.equal(h.problems()[0].name, "runner");
+});
 
 test("cron: basic wildcards and ranges", () => {
   const spec = parseCron("0 9 * * 1-5");

@@ -12,7 +12,7 @@
  * Node half: registers sa_* tools, the scheduler, the run runner, and the
  * panel HTTP API. The browser half lives in client.js.
  */
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -65,6 +65,14 @@ function writeJsonAtomic(file, value) {
 
 function appendLine(file, line) {
   fs.appendFileSync(file, line.endsWith("\n") ? line : line + "\n");
+}
+
+// ---------------------------------------------------------------------------
+// domain: deterministic ids (docs/001: equal inputs -> equal id -> dedupe)
+// ---------------------------------------------------------------------------
+
+function key(...values) {
+  return createHash("sha256").update(JSON.stringify(values)).digest("hex").slice(0, 16);
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +201,53 @@ function makeLedger(dir) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// health: named entries, single writer each (docs/005). set(name, level, note)
+// only the first claimant of a name may write it; late writes after release
+// are dropped, so a torn-down component can never resurrect its entries.
+// ---------------------------------------------------------------------------
+
+function makeHealth() {
+  const owners = new Map(); // name -> writer token
+  const entries = new Map(); // name -> { level, note, at }
+  return {
+    claim(name, token) {
+      if (owners.has(name) && owners.get(name) !== token) return false;
+      owners.set(name, token);
+      return true;
+    },
+    set(name, level, note = "") {
+      if (!owners.has(name)) return false;
+      entries.set(name, { level, note, at: new Date().toISOString() });
+      return true;
+    },
+    release(name, token) {
+      if (owners.get(name) === token) owners.delete(name);
+    },
+    list() {
+      return [...entries].map(([name, e]) => ({ name, ...e }));
+    },
+    problems() {
+      return [...entries].filter(([, e]) => e.level === "error").map(([name, e]) => ({ name, ...e }));
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// pause: global schedule-trigger switch (does not kill running runs).
+// Persisted; survives restarts; missed occurrences are never replayed.
+// ---------------------------------------------------------------------------
+
+function makePause(dir) {
+  const file = path.join(dir, "pause.json");
+  return {
+    on: () => !!readJson(file, {}).paused,
+    set(v) {
+      writeJsonAtomic(file, { paused: !!v, at: new Date().toISOString() });
+    },
+  };
+}
+
 const MAX_PLAYBOOK_LINES = 60;
 
 function appendPlaybook(file, text) {
@@ -263,9 +318,18 @@ function buildReflectionPrompt(agentName, taskText, resultText, resultPath) {
 // runner: sessionController-backed agent runs with a small concurrency queue
 // ---------------------------------------------------------------------------
 
-function makeRunner(ctx, config, ledger, state) {
+function makeRunner(ctx, config, ledger, state, health) {
   const queue = [];
   let active = 0;
+  let consecutiveFailures = 0;
+  health.claim("runner", "runner");
+  health.claim("sessionController", "runner");
+
+  function reportRunnerHealth() {
+    if (consecutiveFailures >= 3) health.set("runner", "error", `${consecutiveFailures} consecutive run failures`);
+    else if (consecutiveFailures > 0) health.set("runner", "warn", `${consecutiveFailures} consecutive run failures`);
+    else health.set("runner", "ok", "");
+  }
 
   function log(runId, line) {
     try {
@@ -291,7 +355,11 @@ function makeRunner(ctx, config, ledger, state) {
   }
 
   function makeRun(agent, opts) {
-    const id = `r-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${randomUUID().slice(0, 8)}`;
+    // Deterministic ids for scheduled triggers: equal (scheduleId, occurrence)
+    // always maps to one run row, so a double tick or a crash-replay cannot
+    // double-dispatch. Manual runs keep randomness (same-second dispatch is real).
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const id = opts.id || `r-${stamp}-${randomUUID().slice(0, 8)}`;
     const cwd = opts.cwd || agent.cwd || config.defaultCwd || process.cwd();
     // The artifact must live INSIDE the run cwd: worker sessions run under a
     // workspace-write sandbox and are denied writes outside their own cwd.
@@ -320,10 +388,23 @@ function makeRunner(ctx, config, ledger, state) {
     // persist the row now: patchRun below only updates existing rows, and a
     // crash between enqueue and execute would otherwise lose the run entirely.
     const runs = ledger.runs();
+    if (opts.id && runs.some((r) => r.id === id)) return null; // occurrence already dispatched (dedupe)
     runs.push({ ...run, onFinish: undefined, reflectionSource: undefined });
     ledger.saveRuns(runs);
     state.emit();
     return run;
+  }
+
+  function requeuePersisted() {
+    // startup replay: queued rows never started, so re-enqueuing is safe.
+    for (const row of ledger.runs()) {
+      if (row.status === "queued") {
+        const agent = ledger.agents().find((a) => a.id === row.agentId);
+        if (!agent) continue;
+        queue.push({ ...row, onFinish: null });
+      }
+    }
+    if (queue.length) void pump();
   }
 
   function enqueue(run) {
@@ -338,6 +419,8 @@ function makeRunner(ctx, config, ledger, state) {
       active += 1;
       void execute(run)
         .catch((err) => {
+          consecutiveFailures += 1;
+          reportRunnerHealth();
           patchRun(run.id, { status: "failed", endedAt: new Date().toISOString(), error: String((err && err.message) || err).slice(0, 400) });
           log(run.id, `failed: ${String((err && err.message) || err).slice(0, 400)}`);
         })
@@ -360,8 +443,10 @@ function makeRunner(ctx, config, ledger, state) {
   async function execute(run) {
     const sc = getSessionController();
     if (!sc || typeof sc.create !== "function" || typeof sc.prompt !== "function") {
+      health.set("sessionController", "error", "宿主会话服务不可用：run 依赖 sessionController（web profile 默认可用）");
       throw new Error("sessionController 服务不可用：run 依赖宿主会话服务（web profile 默认可用）");
     }
+    health.set("sessionController", "ok", "");
     const agent = ledger.agents().find((a) => a.id === run.agentId);
     if (!agent) throw new Error(`agent ${run.agentId} not found`);
     const playbook = agent.learn === false ? "" : readPlaybook(ledger.playbookPath(agent.id));
@@ -421,6 +506,8 @@ function makeRunner(ctx, config, ledger, state) {
 
     if (!settled) {
       try { sc.cancel({ sessionId }); } catch { /* best effort */ }
+      consecutiveFailures += 1;
+      reportRunnerHealth();
       patchRun(run.id, { status: "timeout", endedAt: new Date().toISOString(), error: `run exceeded ${limit}ms; cancelled` });
       log(run.id, "timeout");
       return;
@@ -435,6 +522,10 @@ function makeRunner(ctx, config, ledger, state) {
       endedAt: new Date().toISOString(),
       resultHead: (resultHead.split("\n")[0] || "").slice(0, 160),
     });
+    if (resultHead) {
+      consecutiveFailures = 0;
+      reportRunnerHealth();
+    }
     log(run.id, `finished status=${resultHead ? "done" : "done_no_artifact"}`);
 
     // self-improvement: reflect and append lessons (LobeHub expertise loop)
@@ -462,15 +553,18 @@ function makeRunner(ctx, config, ledger, state) {
     }
   }
 
-  return { enqueue, log, patchRun, makeRun, queueSize: () => queue.length, activeCount: () => active };
+  return { enqueue, log, patchRun, makeRun, requeuePersisted, queueSize: () => queue.length, activeCount: () => active };
 }
 
 // ---------------------------------------------------------------------------
 // scheduler: central tick scanning schedule rows (LobeHub scheduleDispatch)
 // ---------------------------------------------------------------------------
 
-function makeScheduler(config, ledger, runner, state) {
+function makeScheduler(config, ledger, runner, state, health, pause) {
   let timer = null;
+  let tickFailures = 0;
+  health.claim("scheduler", "scheduler");
+  health.claim("pause", "scheduler");
 
   function dueSchedules(now) {
     const out = [];
@@ -482,7 +576,11 @@ function makeScheduler(config, ledger, runner, state) {
       }
       if (s.kind === "every") {
         const base = s.lastFiredAt ? Date.parse(s.lastFiredAt) : Date.parse(s.createdAt);
-        if (now.getTime() - base >= (s.everySeconds || 3600) * 1000) out.push({ s, occ: now.toISOString() });
+        const interval = (s.everySeconds || 3600) * 1000;
+        if (now.getTime() - base >= interval) {
+          // deterministic occurrence: the scheduled boundary, not the tick time
+          out.push({ s, occ: new Date(base + interval).toISOString() });
+        }
         continue;
       }
       if (s.kind === "cron") {
@@ -507,21 +605,28 @@ function makeScheduler(config, ledger, runner, state) {
     const agent = ledger.agents().find((a) => a.id === row.agentId);
     if (!agent || agent.enabled === false) return;
     const run = runner.makeRun(agent, {
+      id: `r-${key("run", row.id, occ)}`, // deterministic: replay-safe (docs/001)
       kind: "scheduled",
       trigger: "schedule",
       taskText: row.prompt,
       cwd: row.cwd,
       model: row.model,
     });
-    runner.enqueue(run);
+    if (run) runner.enqueue(run);
     state.emit();
   }
 
   function tick() {
     try {
+      health.set("pause", pause.on() ? "warn" : "ok", pause.on() ? "调度已暂停：不会触发新任务（运行中的不受影响）" : "");
+      if (pause.on()) return; // pause stops triggering; missed occurrences are not replayed
       const now = new Date();
       for (const { s, occ } of dueSchedules(now)) fire(s, occ);
+      if (tickFailures > 0) tickFailures = 0;
+      health.set("scheduler", "ok", "");
     } catch (err) {
+      tickFailures += 1;
+      health.set("scheduler", tickFailures >= 3 ? "error" : "warn", `tick failed x${tickFailures}: ${String(err && err.message || err).slice(0, 160)}`);
       console.warn("[dsh-super-agents] scheduler tick failed:", err && err.message);
     }
   }
@@ -561,7 +666,7 @@ function parseModelString(model) {
   return model.includes("/");
 }
 
-function registerTools(ctx, config, ledger, runner, scheduler, state) {
+function registerTools(ctx, config, ledger, runner, scheduler, state, health, pause) {
   ctx.tools.register(defineTool({
     name: "sa_agent",
     description:
@@ -823,6 +928,36 @@ function registerTools(ctx, config, ledger, runner, scheduler, state) {
       return json({ ok: true, added: r.added, total: r.total });
     },
   }));
+
+  ctx.tools.register(defineTool({
+    name: "sa_health",
+    description:
+      "超级智能体系统健康与暂停开关：list 查看健康条目（scheduler/runner/sessionController/pause）与队列水位；pause 暂停调度触发（不杀运行中的 run，错过的 occurrence 不补发）；resume 恢复。对应理念「agent 吵了就暂停它」。",
+    parameters: {
+      action: { type: "string", required: true, enum: ["list", "pause", "resume"], description: "操作" },
+    },
+    output: TEXT_OUTPUT,
+    async execute(args) {
+      if (args.action === "pause") {
+        pause.set(true);
+        state.emit();
+        return json({ ok: true, paused: true, note: "调度已暂停：不再触发新任务；运行中的 run 不受影响；错过的 occurrence 不补发" });
+      }
+      if (args.action === "resume") {
+        pause.set(false);
+        state.emit();
+        return json({ ok: true, paused: false, note: "调度已恢复" });
+      }
+      return json({
+        ok: true,
+        paused: pause.on(),
+        health: health.list(),
+        problems: health.problems(),
+        queue: runner.queueSize(),
+        active: runner.activeCount(),
+      });
+    },
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -856,10 +991,26 @@ async function readBody(req) {
   });
 }
 
-function registerRoutes(ctx, config, ledger, runner, state) {
+function registerRoutes(ctx, config, ledger, runner, state, health, pause) {
   ctx.inject(["webServer"], (wctx) => {
     const allowLan = config.allowLanState !== false;
     const routes = [];
+
+    routes.push(wctx.webServer.register({
+      kind: "exact",
+      path: "/api/dsh-super-agents/health",
+      handler: async (req, res) => {
+        if (!isAllowedRequest(req, allowLan)) return writeJson(res, 403, { error: "forbidden: loopback-only" });
+        return writeJson(res, 200, {
+          ok: health.problems().length === 0,
+          paused: pause.on(),
+          health: health.list(),
+          problems: health.problems(),
+          queue: runner.queueSize(),
+          active: runner.activeCount(),
+        });
+      },
+    }));
 
     routes.push(wctx.webServer.register({
       kind: "exact",
@@ -873,6 +1024,8 @@ function registerRoutes(ctx, config, ledger, runner, state) {
           runs: ledger.runs().slice(-60).reverse(),
           queue: runner.queueSize(),
           active: runner.activeCount(),
+          paused: pause.on(),
+          health: health.list(),
         });
       },
     }));
@@ -1035,20 +1188,24 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, makeLedger, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir };
 
 export function apply(ctx, config) {
   const resolved = config || {};
   const dir = resolveDataDir(resolved);
   ensureDirs(dir);
   const ledger = makeLedger(dir);
-  // startup sweep: runs left mid-flight by a previous host process can never
-  // complete — mark them so the panel shows truth, not eternal "running".
+  const health = makeHealth();
+  const pause = makePause(dir);
+  // startup sweep (docs/001 run-state table): a run left mid-flight by the old
+  // process can never complete — its session died with it, and replaying could
+  // repeat external side effects, so mark it. queued rows never started and are
+  // replay-safe: the runner re-enqueues them below.
   {
     const stale = ledger.runs();
     let touched = false;
     for (const r of stale) {
-      if (r.status === "running" || r.status === "queued") {
+      if (r.status === "running") {
         r.status = "interrupted";
         r.endedAt = new Date().toISOString();
         r.error = "host restarted while the run was in flight";
@@ -1063,13 +1220,14 @@ export function apply(ctx, config) {
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
 
-  const runner = makeRunner(ctx, resolved, ledger, state);
-  const scheduler = makeScheduler(resolved, ledger, runner, state);
+  const runner = makeRunner(ctx, resolved, ledger, state, health);
+  const scheduler = makeScheduler(resolved, ledger, runner, state, health, pause);
+  runner.requeuePersisted();
   scheduler.start();
   ctx.effect(() => scheduler.stop, "dsh-super-agents: scheduler");
 
-  registerTools(ctx, resolved, ledger, runner, scheduler, state);
-  registerRoutes(ctx, resolved, ledger, runner, state);
+  registerTools(ctx, resolved, ledger, runner, scheduler, state, health, pause);
+  registerRoutes(ctx, resolved, ledger, runner, state, health, pause);
   registerSkill(ctx);
 
   // light system-prompt hint so the model knows the roster exists (empty = dropped)
@@ -1082,7 +1240,7 @@ export function apply(ctx, config) {
       const lines = agents.slice(0, 12).map((a) => `- ${a.id} 「${a.name}」${a.model ? ` model=${a.model}` : ""}`).join("\n");
       return [
         "本机装有 dsh-super-agents 插件：持久化超级智能体可后台领活与自学习。",
-        "可用工具：sa_agent（角色卡）、sa_run（派活）、sa_runs/sa_run_result（回收）、sa_say（续聊）、sa_schedule（定时自主）、sa_learn（经验沉淀）。",
+        "可用工具：sa_agent（角色卡）、sa_run（派活）、sa_runs/sa_run_result（回收）、sa_say（续聊）、sa_schedule（定时自主）、sa_learn（经验沉淀）、sa_health（健康与暂停）。",
         "当前在册 agent：",
         lines,
       ].join("\n");

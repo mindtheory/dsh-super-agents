@@ -18,6 +18,7 @@ description: DSH 超级智能体（dsh-super-agents 插件）：创建持久化 
 | `sa_say` | 对已有 run 的会话追加指令（补充要求/追问） |
 | `sa_schedule` | 自主领活：cron / everySeconds / at 三种模式登记任务 |
 | `sa_learn` | 手动/从某次 run 蒸馏经验进 playbook |
+| `sa_health` | 健康板（scheduler/runner/sessionController/pause）+ 全局暂停/恢复调度 |
 
 ## 标准工作流
 
@@ -34,3 +35,5 @@ description: DSH 超级智能体（dsh-super-agents 插件）：创建持久化 
 - 运行超时（默认 30 分钟）会被标记 timeout 并取消会话。
 - 用户说"每天/每周自动做 X"→ 用 `sa_schedule`，不要自己挂 shell cron。
 - 用户说"让它记住……"→ 用 `sa_learn` 直接写 playbook。
+- 用户说"暂停自动任务/先别让它自己跑"→ `sa_health pause`（不杀运行中的 run，错过的 occurrence 不补发）；恢复用 `sa_health resume`。
+- 排查"定时任务没跑"：先 `sa_health list` 看是否 paused、cron 的 tz 是否符预期、agent 是否被停用。

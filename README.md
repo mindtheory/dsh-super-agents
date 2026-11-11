@@ -4,6 +4,19 @@
 
 Inspired by the super-agent model in [lobehub/lobehub](https://github.com/lobehub/lobehub) ("agents that pick up tasks on a schedule and compound expertise"), rebuilt from scratch on DSH plugin primitives. No LobeHub code is used; this is an independent implementation of the same ideas.
 
+The engineering baseline — philosophy, domain discipline, idempotent ids, health board, panel principles — follows the official research prototype [deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype) ("Towards a More Autonomous Agent System"), adapted to a single-host personal scale. See [docs/](docs/) for the shared design documents.
+
+## Design docs (shared with other projects)
+
+| Doc | Contents |
+|---|---|
+| [000 Philosophy](docs/000-philosophy.md) | Core principle: take as little human attention as possible, give as much value as possible |
+| [001 Domain](docs/001-domain.md) | Concepts (Agent / Schedule / Run / Artifact / Playbook / Health), run-state table, rejected concepts |
+| [002 Architecture](docs/002-architecture.md) | Reference architecture (prototype) + this plugin's layering, ports and extension points |
+| [003 Engineering](docs/003-engineering.md) | Hard problems and solutions; adopted vs. cut prototype mechanisms; refactor roadmap |
+| [004 Prompts](docs/004-prompts.md) | Prompt inventory, assembly principles, playbook-as-versioning |
+| [005 Panel & Ops](docs/005-panel.md) | Panel answers three questions; health entries; pause contract, backup, troubleshooting |
+
 ## What it does
 
 | Capability | Mechanism |
@@ -60,6 +73,7 @@ Override in your profile's own `cordis.patch.yml` (it layers after bundle patche
 | `sa_say` | Follow-up message into a run's session |
 | `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` / `delete` |
 | `sa_learn` | Append lessons manually, or distill from a finished run |
+| `sa_health` | Health board (`scheduler` / `runner` / `sessionController` / `pause`) + global schedule pause/resume |
 
 A matching **skill** (`super-agents`) is registered so the host model knows when and how to use these tools.
 
@@ -95,10 +109,11 @@ $DSH_HOME/dsh-super-agents/
 ├── runs.json        # run ledger (last 300)
 ├── logs/<runId>.log # per-run runner log
 ├── results/         # host-side artifact fallback
+├── pause.json       # global schedule-pause flag (survives restarts)
 └── playbooks/<agentId>.md
 ```
 
-Runs interrupted by a host restart are swept to `interrupted` on boot.
+Boot sweep: `running` rows → `interrupted` (their sessions died with the old process; replaying could repeat external side effects), `queued` rows are re-enqueued (never started, replay-safe). `GET /api/dsh-super-agents/health` exposes the health board for external monitors.
 
 ## Development
 

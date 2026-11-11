@@ -30,6 +30,11 @@ const Config = z.object({
   runTimeoutMs: z.number().default(1800000),
   tickSeconds: z.number().default(30),
   allowLanState: z.boolean().default(true),
+  // transient-failure retry (upstream dsh 0.2.2 made model retries configurable):
+  // max attempts per run (first try included), exponential backoff base, poll cadence.
+  retryMaxAttempts: z.number().default(2),
+  retryBaseDelayMs: z.number().default(2000),
+  pollIntervalMs: z.number().default(5000),
 });
 
 // ---------------------------------------------------------------------------
@@ -315,6 +320,31 @@ function buildReflectionPrompt(agentName, taskText, resultText, resultPath) {
 }
 
 // ---------------------------------------------------------------------------
+// retry policy: only transient host/LLM failures retry; deterministic failures
+// (bad agent, missing service, prompt contract errors) fail immediately.
+// ---------------------------------------------------------------------------
+
+const TRANSIENT_PATTERNS = [
+  /(^|\D)(429|500|502|503|504)(\D|$)/,
+  /rate.?limit/i,
+  /overloaded|temporarily unavailable|try again later/i,
+  /timed?\s?out|ETIMEDOUT/i,
+  /ECONNRESET|ECONNREFUSED|EAI_AGAIN|EPIPE|socket hang up/i,
+];
+
+function isTransientError(err) {
+  const message = String((err && (err.message || err)) || "");
+  return message ? TRANSIENT_PATTERNS.some((re) => re.test(message)) : false;
+}
+
+// attempt 2 -> base, attempt 3 -> 2x base, ... capped at 60s.
+function retryDelay(attempt, baseDelayMs) {
+  const base = Math.max(1, Number(baseDelayMs) || 2000);
+  const exponent = Math.max(0, Number(attempt) - 2);
+  return Math.min(base * 2 ** exponent, 60000);
+}
+
+// ---------------------------------------------------------------------------
 // runner: sessionController-backed agent runs with a small concurrency queue
 // ---------------------------------------------------------------------------
 
@@ -322,6 +352,9 @@ function makeRunner(ctx, config, ledger, state, health) {
   const queue = [];
   let active = 0;
   let consecutiveFailures = 0;
+  const retryMaxAttempts = Math.max(1, Math.min(5, Number(config.retryMaxAttempts) || 2));
+  const retryBaseDelayMs = Math.max(50, Math.min(60000, Number(config.retryBaseDelayMs) || 2000));
+  const pollIntervalMs = Math.max(10, Math.min(60000, Number(config.pollIntervalMs) || 5000));
   health.claim("runner", "runner");
   health.claim("sessionController", "runner");
 
@@ -381,6 +414,7 @@ function makeRunner(ctx, config, ledger, state, health) {
       model: opts.model || "",
       resultPath,
       status: "queued",
+      attempts: 0,
       createdAt: new Date().toISOString(),
       sessionId: "",
       onFinish: null,
@@ -419,10 +453,28 @@ function makeRunner(ctx, config, ledger, state, health) {
       active += 1;
       void execute(run)
         .catch((err) => {
+          const message = String((err && err.message) || err).slice(0, 400);
+          const attempt = run.attempts || 1;
+          const transient = isTransientError(err);
+          // transient failure with attempts left: back off and replay the *same*
+          // run row (attempts persisted, so replay-after-restart stays bounded).
+          if (transient && attempt < retryMaxAttempts) {
+            const delay = retryDelay(attempt + 1, retryBaseDelayMs);
+            patchRun(run.id, { status: "queued", attempts: attempt, error: `transient failure; retry ${attempt + 1}/${retryMaxAttempts} in ${delay}ms: ${message}` });
+            log(run.id, `retry ${attempt + 1}/${retryMaxAttempts} in ${delay}ms: ${message}`);
+            setTimeout(() => enqueue(run), delay);
+            return;
+          }
           consecutiveFailures += 1;
           reportRunnerHealth();
-          patchRun(run.id, { status: "failed", endedAt: new Date().toISOString(), error: String((err && err.message) || err).slice(0, 400) });
-          log(run.id, `failed: ${String((err && err.message) || err).slice(0, 400)}`);
+          patchRun(run.id, {
+            status: "failed",
+            attempts: attempt,
+            endedAt: new Date().toISOString(),
+            error: message,
+            errorCode: transient ? "ERR_RUN_TRANSIENT" : (err && err.code ? err.code : "ERR_RUN_FAILED"),
+          });
+          log(run.id, `failed: ${message}`);
         })
         .then(() => {
           // completion hook (reflection -> playbook append)
@@ -444,18 +496,26 @@ function makeRunner(ctx, config, ledger, state, health) {
     const sc = getSessionController();
     if (!sc || typeof sc.create !== "function" || typeof sc.prompt !== "function") {
       health.set("sessionController", "error", "宿主会话服务不可用：run 依赖 sessionController（web profile 默认可用）");
-      throw new Error("sessionController 服务不可用：run 依赖宿主会话服务（web profile 默认可用）");
+      const err = new Error("sessionController 服务不可用：run 依赖宿主会话服务（web profile 默认可用）");
+      err.code = "ERR_RUN_SESSION_CONTROLLER";
+      throw err;
     }
     health.set("sessionController", "ok", "");
     const agent = ledger.agents().find((a) => a.id === run.agentId);
-    if (!agent) throw new Error(`agent ${run.agentId} not found`);
+    if (!agent) {
+      const err = new Error(`agent ${run.agentId} not found`);
+      err.code = "ERR_RUN_AGENT_MISSING";
+      throw err;
+    }
+    const attempt = (run.attempts || 0) + 1;
+    run.attempts = attempt;
     const playbook = agent.learn === false ? "" : readPlaybook(ledger.playbookPath(agent.id));
     const promptText = run.kind === "reflection"
       ? buildReflectionPrompt(agent.name, run.taskText || "", run.reflectionSource || "", run.resultPath)
       : buildTaskPrompt(agent, run.taskText, run.id, run.resultPath, playbook);
 
-    patchRun(run.id, { status: "running", startedAt: new Date().toISOString() });
-    log(run.id, `start agent=${agent.name} kind=${run.kind} cwd=${run.cwd}`);
+    patchRun(run.id, { status: "running", attempts: attempt, startedAt: new Date().toISOString() });
+    log(run.id, `start agent=${agent.name} kind=${run.kind} attempt=${attempt}/${retryMaxAttempts} cwd=${run.cwd}`);
 
     const created = await sc.create({ cwd: run.cwd });
     const sessionId = created.sessionId;
@@ -485,7 +545,10 @@ function makeRunner(ctx, config, ledger, state, health) {
       log(run.id, "prompt accepted");
     } catch (err) {
       clearTimeout(timer);
-      throw new Error(`prompt failed: ${String((err && err.message) || err).slice(0, 300)}`);
+      const message = String((err && err.message) || err).slice(0, 300);
+      const wrapped = new Error(`prompt failed: ${message}`);
+      wrapped.code = "ERR_RUN_PROMPT";
+      throw wrapped;
     }
 
     // poll session liveness until it stops running (same signal the GUI list uses)
@@ -493,7 +556,7 @@ function makeRunner(ctx, config, ledger, state, health) {
     const limit = config.runTimeoutMs || 1800000;
     let settled = false;
     while (Date.now() - startedAt < limit) {
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
       let running = true;
       try {
         const list = await sc.list({}, new AbortController().signal);
@@ -508,7 +571,7 @@ function makeRunner(ctx, config, ledger, state, health) {
       try { sc.cancel({ sessionId }); } catch { /* best effort */ }
       consecutiveFailures += 1;
       reportRunnerHealth();
-      patchRun(run.id, { status: "timeout", endedAt: new Date().toISOString(), error: `run exceeded ${limit}ms; cancelled` });
+      patchRun(run.id, { status: "timeout", attempts: run.attempts, endedAt: new Date().toISOString(), error: `run exceeded ${limit}ms; cancelled`, errorCode: "ERR_RUN_TIMEOUT" });
       log(run.id, "timeout");
       return;
     }
@@ -1205,7 +1268,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner };
 
 export function apply(ctx, config) {
   const resolved = config || {};

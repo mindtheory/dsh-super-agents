@@ -60,7 +60,17 @@ Override in your profile's own `cordis.patch.yml` (it layers after bundle patche
         runTimeoutMs: 1800000  # hard per-run limit (30 min), then cancelled
         tickSeconds: 30        # scheduler tick interval (min 10)
         allowLanState: true    # let non-loopback GUI clients use the panel API
+        retryMaxAttempts: 2    # total attempts per run on transient errors (1 = no retry)
+        retryBaseDelayMs: 2000 # backoff base; attempt 2 waits base, 3 waits 2x, ... cap 60s
+        pollIntervalMs: 5000   # session liveness poll cadence
 ```
+
+Transient failures (HTTP 429/5xx, rate limit, timeouts, `ECONNRESET` / `socket hang up`)
+are retried on the **same run row** with exponential backoff, so `attempts` stays visible
+and a host restart during backoff cannot exceed the cap. Deterministic failures (bad agent,
+missing `sessionController`, `4xx`) fail immediately with an `errorCode`
+(`ERR_RUN_SESSION_CONTROLLER` / `ERR_RUN_AGENT_MISSING` / `ERR_RUN_PROMPT` /
+`ERR_RUN_TRANSIENT` / `ERR_RUN_TIMEOUT`).
 
 ## Tools
 

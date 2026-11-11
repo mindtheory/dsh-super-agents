@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -128,4 +128,126 @@ test("task prompt: persona + playbook + artifact contract", () => {
   assert.ok(text.includes("你是测试员。"));
   assert.ok(text.includes("- 先跑测试"));
   assert.ok(text.includes("/tmp/out.md"));
+});
+
+test("retry policy: only transient failures are retryable", () => {
+  for (const msg of ["429 Too Many Requests", "HTTP 503 Service Unavailable", "rate limit exceeded", "request timed out", "socket hang up", "read ECONNRESET", "model overloaded"]) {
+    assert.ok(isTransientError(new Error(msg)), msg);
+  }
+  for (const msg of ["400 bad request", "invalid api key", "agent a-1 not found", "prompt contract violated"]) {
+    assert.ok(!isTransientError(new Error(msg)), msg);
+  }
+  assert.equal(isTransientError(null), false);
+  assert.equal(isTransientError(undefined), false);
+});
+
+test("retry policy: exponential backoff with 60s cap", () => {
+  assert.equal(retryDelay(2, 2000), 2000);
+  assert.equal(retryDelay(3, 2000), 4000);
+  assert.equal(retryDelay(4, 2000), 8000);
+  assert.equal(retryDelay(10, 2000), 60000);
+  assert.equal(retryDelay(2, 0), 2000); // invalid base falls back
+});
+
+function fakeCtx(sessionController) {
+  return { get: () => sessionController };
+}
+
+function makeTestRunner(dir, sc, overrides) {
+  const ledger = makeLedger(dir);
+  const agent = { id: "a-1", name: "T", systemRole: "r", model: "", cwd: dir, learn: false, enabled: true };
+  ledger.saveAgents([agent]);
+  const state = { emit() {}, subscribe() { return () => {}; } };
+  const runner = makeRunner(fakeCtx(sc), {
+    maxConcurrent: 1,
+    runTimeoutMs: 5000,
+    pollIntervalMs: 10,
+    retryMaxAttempts: 2,
+    retryBaseDelayMs: 50,
+    ...(overrides || {}),
+  }, ledger, state, makeHealth());
+  return { ledger, agent, runner };
+}
+
+async function waitForStatus(ledger, runId, wanted, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  let row = null;
+  while (Date.now() < deadline) {
+    row = ledger.runs().find((r) => r.id === runId) || null;
+    if (row && wanted.includes(row.status)) return row;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return row;
+}
+
+test("runner: transient failure retries the same run and then completes", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let promptCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    selectModel: async () => {},
+    prompt: async () => {
+      promptCalls += 1;
+      if (promptCalls === 1) throw new Error("429 Too Many Requests");
+      return {};
+    },
+    list: async () => ({ items: [{ sessionId: "s-1", running: false }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  const row = await waitForStatus(ledger, run.id, ["done", "done_no_artifact", "failed", "timeout"]);
+  assert.equal(row.status, "done_no_artifact");
+  assert.equal(row.attempts, 2);
+  assert.equal(promptCalls, 2);
+});
+
+test("runner: exhausted retries end as failed with a transient error code", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let promptCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    prompt: async () => { promptCalls += 1; throw new Error("503 Service Unavailable"); },
+    list: async () => ({ items: [{ sessionId: "s-1", running: false }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  const row = await waitForStatus(ledger, run.id, ["failed"]);
+  assert.equal(row.status, "failed");
+  assert.equal(row.attempts, 2);
+  assert.equal(promptCalls, 2);
+  assert.equal(row.errorCode, "ERR_RUN_TRANSIENT");
+});
+
+test("runner: deterministic failures do not retry", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let promptCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    prompt: async () => { promptCalls += 1; throw new Error("400 bad request"); },
+    list: async () => ({ items: [{ sessionId: "s-1", running: false }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  const row = await waitForStatus(ledger, run.id, ["failed"]);
+  assert.equal(row.status, "failed");
+  assert.equal(row.attempts, 1);
+  assert.equal(promptCalls, 1);
+  assert.equal(row.errorCode, "ERR_RUN_PROMPT");
+});
+
+test("runner: missing sessionController fails immediately with a clear code", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const { ledger, agent, runner } = makeTestRunner(dir, undefined);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  const row = await waitForStatus(ledger, run.id, ["failed"]);
+  assert.equal(row.status, "failed");
+  assert.equal(row.errorCode, "ERR_RUN_SESSION_CONTROLLER");
+  assert.equal(row.attempts, 1);
 });

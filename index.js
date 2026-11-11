@@ -1014,6 +1014,23 @@ function registerRoutes(ctx, config, ledger, runner, state, health, pause) {
 
     routes.push(wctx.webServer.register({
       kind: "exact",
+      path: "/api/dsh-super-agents/pause",
+      handler: async (req, res) => {
+        if (!isAllowedRequest(req, allowLan)) return writeJson(res, 403, { error: "forbidden: loopback-only" });
+        if ((req.method || "GET") !== "POST") return writeJson(res, 405, { error: "POST only" });
+        try {
+          const body = await readBody(req);
+          pause.set(body.paused === true);
+          state.emit();
+          return writeJson(res, 200, { ok: true, paused: pause.on() });
+        } catch (err) {
+          return writeJson(res, 400, { error: String((err && err.message) || err).slice(0, 200) });
+        }
+      },
+    }));
+
+    routes.push(wctx.webServer.register({
+      kind: "exact",
       path: "/api/dsh-super-agents/state",
       handler: async (req, res) => {
         if (!isAllowedRequest(req, allowLan)) return writeJson(res, 403, { error: "forbidden: loopback-only" });

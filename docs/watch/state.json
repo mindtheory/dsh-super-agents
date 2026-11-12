@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-11T13:05:00-05:00",
+  "checkedAt": "2026-11-12T13:05:00-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
-    "head": "5ddc501746849346e53f013dd76783456b20015f",
+    "head": "ec498266000c0f24d6abca2abdd920d26a388301",
     "version": "0.1.0"
   },
   "dsh": {
@@ -14,8 +14,11 @@
     "installDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh",
     "upstream": {
       "repo": "deepseek-ai/deepseek-harness",
+      "npmPackage": "@deepseek-ai/dsh",
+      "npmPackageNote": "2026-11-12 口径修正：`npm view dsh version` 返回 1.0.1 是 2016 年的同名无关包（infusion/node-dsh），不能作为 DSH 版本信号；必须查 scoped 包 @deepseek-ai/dsh。属测量口径修正，不是上游变更。",
       "latestReleaseTag": "dsh-v0.2.2-rc.2",
       "latestReleaseAt": "2026-11-11T11:33:06Z",
+      "releaseChanged": false,
       "npmDistTagLatest": "0.2.2-rc.1",
       "upgradeAvailable": true,
       "headlineChanges": [
@@ -30,6 +33,7 @@
   "officialPackages": {
     "baseDir": "/home/canetwork/.dsh-0.2/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai",
     "packageCount": 305,
+    "changedSinceBaseline": false,
     "mtimeMeaning": "max mtime of a source file inside the package dir, from find -path '*/node_modules' -prune -o -type f -printf %T@ | sort -rn | head -1. node_modules is pruned so zod unpacking artifacts cannot masquerade as source changes.",
     "mtimeMethodNote": "2026-11-11 起改用 pruned 采集。上一版 dsh-schedule/dsh-goal/dsh-subagent 等值来自 node_modules/zod 解包产物，本次已修正为源码 mtime；两版差异属测量方法修正，不是上游变更。",
     "tracked": {
@@ -111,21 +115,21 @@
   },
   "lobehub": {
     "repo": "lobehub/lobehub",
-    "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=3",
-    "sha": "efd8d0dc5a261167674954501fa4bf4c0e60f429",
-    "commitDate": "2026-11-11T17:49:03Z",
-    "message": "fix(chat-input): Send now interrupts a run that is still taking the queued message (#22838)",
-    "previousSha": "3e750d654b4b9ee00bf791c6aa72b39f0d8d7b05",
+    "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=30",
+    "sha": "14b10542fe41",
+    "commitDate": "2026-11-12T17:50:33Z",
+    "message": "✅ test(upload): separate missing-size validation from token path restrictions (#22932)",
+    "previousSha": "efd8d0dc5a261167674954501fa4bf4c0e60f429",
     "fetchFailed": false,
-    "note": "新提交为 chat-input 中断正在取队列消息的运行；与 super-agent 模型无直接关系，不移植。"
+    "note": "当日 super-agent 相关提交评估：6d52b97abe13 `feat(lobe-agent): cancel a running sub-agent (#22496)` → 已移植为 run 取消（ec49826）；1c4ee6ba2fc1 修幽灵 pending 状态 → 本仓库无此问题；channel/TTS/goal-share/creds/sandbox 类不移植（宿主 UI 或安全红线）。"
   },
   "web": {
-    "lastQuery": "DeepSeek Harness super agent plugin | dsh-superagent-prototype github | DeepSeek Harness 0.2 super agent",
-    "lastResultNote": "检索到上游原型 repo、0.2.x 讨论与新闻稿，无超越官方 release notes 的新能力信息。"
+    "lastQuery": "DeepSeek Harness super agent | dsh-superagent-prototype github | deepseek-harness release 0.2.2 super agent",
+    "lastResultNote": "仍只命中原型 repo、新闻稿与一篇 0.2.2 更新解读，无 release notes 之外的增量能力信息。"
   },
   "testBaseline": {
-    "unit": "18/18 pass",
-    "smoke": "SMOKE OK: 8 tools, 7 routes, scheduler fired & failed gracefully",
+    "unit": "22/22 pass",
+    "smoke": "SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully",
     "allGreen": true,
     "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。"
   },
@@ -150,6 +154,20 @@
       "title": "瞬时错误自动续跑（R2 中此前计划未实现的一项）",
       "action": "implemented",
       "commit": "5ddc501"
+    },
+    {
+      "date": "2026-11-12",
+      "id": "npm-measurement",
+      "title": "npm 版本口径修正：查 @deepseek-ai/dsh，不查同名旧包 dsh",
+      "action": "baseline-correction（测量方法修正，非上游变更）",
+      "commit": null
+    },
+    {
+      "date": "2026-11-12",
+      "id": "lobehub-cancel-run",
+      "title": "移植 LobeHub #22496「取消运行中的子代理」→ queued/running 的 Run 可主动取消",
+      "action": "implemented",
+      "commit": "ec49826"
     }
   ]
 }

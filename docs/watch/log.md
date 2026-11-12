@@ -96,3 +96,63 @@
 - `state.json` 新增 `dsh.upstream`（latestReleaseTag / headlineChanges）与 `prototypeRepo` 两个监控维度，
   下次运行直接 diff 即可发现新版本。
 
+---
+
+## 2026-11-12 · 第四次运行：上游无新版本，移植 LobeHub「取消运行中的子代理」
+
+**结论**：已实现并推送（`ec49826`）。DSH 本地安装、官方包、上游 release、原型 repo 均无变化；
+LobeHub 当日新增 `cancel a running sub-agent`（#22496）属可移植项，已落为本仓库的 run 取消能力。
+
+### 一、逐源检查
+
+| 检查项 | 实测结果 |
+| --- | --- |
+| 工作目录 | `/home/canetwork/dsh/dsh-super-agents` |
+| 本机 dsh 版本 | `0.2.1-rc.2`（`dsh --version` 与 dsh/package.json 一致，未改动安装目录） |
+| 上游最新 release | `dsh-v0.2.2-rc.2`，published 2026-11-11T11:33:06Z —— 与基线相同，**无新 release** |
+| npm 口径修正 | `npm view dsh version` 返回 `1.0.1` 是 2016 年的同名无关包（infusion/node-dsh）；正确的包是 **`@deepseek-ai/dsh`**，dist-tag `latest` = `0.2.2-rc.1`。本次把 `npmPackage` 记入 state.json，属**测量口径修正**非上游变更 |
+| 官方包 mtime | 13 个关注包全部仍为 2026-10-21T02:12Z 一批（`find ... -path '*/node_modules' -prune`），无源码变更；包数 305 |
+| `grep -ril "super.agent\|superagent"` | 官方包源码/README 内无命中 |
+| 上游原型 repo | `deepseek-ai/dsh-superagent-prototype` 最新 commit 仍 `8c32a9d`（2026-10-31），无变化 |
+| lobehub/lobehub | 新 head `14b10542`（2026-11-12T17:50Z，upload 测试），基线 `efd8d0d` |
+| Web 检索 | "DeepSeek Harness super agent" 等 3 组仍只命中原型 repo + 新闻稿 + 一篇 0.2.2 解读，无 release notes 之外的增量 |
+| 单元测试 | `22/22 pass`（`node --test test/unit.test.js`，/tmp 副本） |
+| 冒烟测试 | `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully` |
+
+### 二、LobeHub 当日相关提交评估
+
+- **可移植并已实现**：`6d52b97abe13` ✨ `feat(lobe-agent): cancel a running sub-agent (#22496)`
+  → 本仓库此前只有「超时取消」和「全局暂停调度」，无法主动停掉某个 Run，属真实运维缺口。
+- 已核对无需行动：`1c4ee6ba2fc1` 🐛 `fix(task): drop the non-existent pending status from CLI help,
+  skill docs` —— 本仓库文档中的 Run 状态均与实现一致（无幽灵状态），该问题不存在。
+- 不移植：channel / thread、TTS、goal share、file-viewer（宿主 UI 能力）；
+  creds / OAuth / sandbox 类（安全红线，只记录不自动改）。
+
+### 三、行动与提交
+
+- `ec49826` **feat: cancel queued or running runs**
+  - `makeRunner` 新增内存 in-flight 表 `runId -> { sessionId, cancelled, controller }`：
+    ledger 行本身无法寻址运行中的会话，取消必须靠这张表。
+  - `POST /api/dsh-super-agents/run-cancel {runId}`（loopback 校验 + POST only）：
+    - `queued`：从队列移除并立即落终态 `cancelled`；
+    - `running`：置取消标志 + `AbortController.abort()` + `sessionController.cancel()`，
+      由 `execute()` 的轮询落终态 —— **runner 仍然是 live 状态的唯一写者**，避免并发改 runs.json；
+    - 终态 Run 返回 409，未找到 404。
+  - 三类竞态都收口：重试退避期间取消（execute 入口复查 ledger 状态，后台重放不会起会话）、
+    会话创建中取消（flight 已登记，创建后复查）、prompt/会话因取消而抛错（catch 里取消优先于失败，
+    落 `cancelled` 而非 `failed`）。
+  - 面板：queued/running 运行行新增「取消运行」按钮（client.js + 中英文案）。
+  - 文档：001 状态判定表新增 `cancelled`（且注明启动清扫只重放 queued）、003 采纳表新增一行、
+    005 运维契约新增取消小节、README 与技能文档的状态列表同步。
+  - 测试 +4：排队取消不派发、运行中取消（会话收到 cancel）、prompt 被取消不落 failed、终态拒绝；
+    smoke 路由断言 7 → 8。全部在 /tmp 副本执行，`22/22` + `SMOKE OK` 全绿后才提交。
+- 本提交（`chore: update watch baseline`）只改 `docs/watch/`。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.2**：仍待人工决定（红线：不改 DSH 安装目录），破坏性变更见上节记录。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，属发布元信息，
+  沿用红线不在自动流程改，留待人工确认。
+- `state.json` 的 `dsh.upstream` 本次新增 `npmPackage` 字段，避免下次再被同名 npm 包误导。
+
+

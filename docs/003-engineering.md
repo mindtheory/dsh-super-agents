@@ -110,6 +110,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | worker preset 工具裁剪 | ⏸ 计划（R4） | 宿主 preset 服务可用后接入 |
 | 事件驱动完成（agent/status 订阅） | ⏸ 计划（R2） | 当前轮询 5s 可用但延迟高 |
 | 瞬时错误自动续跑 | ✅ 采纳（`retryMaxAttempts`/`retryBaseDelayMs`，同 Run 行重放） | 上游 0.2.2 把模型请求重试做成可配置；失败重放是持久化事实 |
+| 取消运行中的子代理 | ✅ 采纳（`/run-cancel` + 内存 in-flight 表；LobeHub #22496） | queued 立即落终态；running 先通知会话再由 runner 落 `cancelled`，保持单一写者 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
 
 ## 三、重构路线（按基准对齐的顺序）

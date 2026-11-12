@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
         "panel.runs": "运行记录",
         "panel.noRuns": "暂无运行记录",
         "panel.detail": "详情",
+        "panel.cancelRun": "取消运行",
         "panel.confirmDel": "删除智能体",
       },
       en: {
@@ -63,6 +64,7 @@ window.__ModuleLoader__.load({
         "panel.runs": "Runs",
         "panel.noRuns": "No runs yet",
         "panel.detail": "Detail",
+        "panel.cancelRun": "Cancel run",
         "panel.confirmDel": "Delete agent",
       },
     };
@@ -161,12 +163,14 @@ window.__ModuleLoader__.load({
 
     function RunRow(props) {
       var r = props.run;
+      var live = r.status === "queued" || r.status === "running";
       return h("div", { className: "saRow", key: r.id },
         h(StatusTag, { status: r.status }),
         h("span", { className: "saMono" }, r.id),
         h("span", null, r.agentName),
         h("span", { className: "saMono", style: { maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, (r.taskText || "").slice(0, 60)),
-        h("button", { className: "saBtn", onClick: function () { props.controller.openDetail(r.id); } }, t("panel.detail"))
+        h("button", { className: "saBtn", onClick: function () { props.controller.openDetail(r.id); } }, t("panel.detail")),
+        live ? h("button", { className: "saBtn", onClick: function () { props.controller.cancelRun(r.id); } }, t("panel.cancelRun")) : null
       );
     }
 
@@ -312,6 +316,9 @@ window.__ModuleLoader__.load({
         apiGet(API + "/run-detail?runId=" + encodeURIComponent(runId)).then(function (data) {
           c.set({ detail: { runId: runId, run: data.run, artifact: data.artifact, logTail: data.logTail } });
         }).catch(function (err) { c.set({ detail: { runId: runId, artifact: String(err.message || err) } }); });
+      };
+      c.cancelRun = function (runId) {
+        apiPost(API + "/run-cancel", { runId: runId }).then(function () { return c.refresh(); }).catch(function (err) { c.set({ error: String(err.message || err) }); });
       };
     }
 

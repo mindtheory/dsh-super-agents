@@ -13,7 +13,7 @@ description: DSH 超级智能体（dsh-super-agents 插件）：创建持久化 
 |---|---|
 | `sa_agent` | 角色卡 CRUD：name / systemRole（人设）/ model（provider/model）/ cwd / learn（自学习开关） |
 | `sa_run` | 派活：后台新建会话执行任务，立即返回 runId |
-| `sa_runs` | 运行列表（queued/running/done/done_no_artifact/failed/timeout） |
+| `sa_runs` | 运行列表（queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled） |
 | `sa_run_result` | 取某次运行的交付物全文 |
 | `sa_say` | 对已有 run 的会话追加指令（补充要求/追问） |
 | `sa_schedule` | 自主领活：cron / everySeconds / at 三种模式登记任务 |
@@ -33,6 +33,7 @@ description: DSH 超级智能体（dsh-super-agents 插件）：创建持久化 
 - 派活是**后台异步**的：不要同步等待，告诉用户 runId 和稍后用 `sa_runs` 查看。
 - 一个 agent 可并行多次派活；并发上限由插件配置（默认 2），超出的排队。
 - 运行超时（默认 30 分钟）会被标记 timeout 并取消会话。
+- 用户说"别让它跑了/停掉那个任务"→ 在面板运行行点「取消运行」，或 `POST /api/dsh-super-agents/run-cancel` 传 `{runId}`（queued/running 可取消，终态拒绝）；不要删 agent 来代替取消。
 - 用户说"每天/每周自动做 X"→ 用 `sa_schedule`，不要自己挂 shell cron。
 - 用户说"让它记住……"→ 用 `sa_learn` 直接写 playbook。
 - 用户说"暂停自动任务/先别让它自己跑"→ `sa_health pause`（不杀运行中的 run，错过的 occurrence 不补发）；恢复用 `sa_health resume`。

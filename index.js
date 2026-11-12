@@ -352,6 +352,11 @@ function makeRunner(ctx, config, ledger, state, health) {
   const queue = [];
   let active = 0;
   let consecutiveFailures = 0;
+  // Live runs, keyed by runId: `{ sessionId, cancelled, controller }`. Kept in
+  // memory so an operator-initiated cancel can reach the session that is
+  // actually in flight (the LobeHub "cancel a running sub-agent" equivalent);
+  // a ledger row alone cannot address a session mid-run.
+  const inFlight = new Map();
   const retryMaxAttempts = Math.max(1, Math.min(5, Number(config.retryMaxAttempts) || 2));
   const retryBaseDelayMs = Math.max(50, Math.min(60000, Number(config.retryBaseDelayMs) || 2000));
   const pollIntervalMs = Math.max(10, Math.min(60000, Number(config.pollIntervalMs) || 5000));
@@ -447,12 +452,60 @@ function makeRunner(ctx, config, ledger, state, health) {
     return run;
   }
 
+  function settleCancelled(runId) {
+    const row = ledger.runs().find((r) => r.id === runId);
+    // queued cancels are already settled by cancelRun; do not rewrite endedAt.
+    if (row && row.status === "cancelled") return;
+    patchRun(runId, {
+      status: "cancelled",
+      endedAt: new Date().toISOString(),
+      error: "cancelled by operator",
+    });
+    log(runId, "cancelled");
+  }
+
+  // Cancel a run the operator no longer wants. A queued row is dropped from the
+  // queue and settled immediately; a running row gets a cancel signal + session
+  // cancel and is settled by execute()'s poll loop, so the runner stays the only
+  // writer of a live run's status (no racing writes on runs.json).
+  function cancelRun(runId) {
+    const row = ledger.runs().find((r) => r.id === runId);
+    if (!row) return { ok: false, error: "run not found" };
+    if (row.status !== "queued" && row.status !== "running") {
+      return { ok: false, error: `run already ${row.status}` };
+    }
+    const flight = inFlight.get(runId);
+    if (flight) {
+      flight.cancelled = true;
+      try { flight.controller.abort(); } catch { /* best effort */ }
+      const sc = getSessionController();
+      if (sc && typeof sc.cancel === "function" && flight.sessionId) {
+        try { sc.cancel({ sessionId: flight.sessionId }); } catch { /* best effort */ }
+      }
+      log(runId, "cancel requested (running)");
+      return { ok: true, runId, status: "cancelling" };
+    }
+    const idx = queue.findIndex((r) => r.id === runId);
+    if (idx >= 0) queue.splice(idx, 1);
+    patchRun(runId, {
+      status: "cancelled",
+      endedAt: new Date().toISOString(),
+      error: "cancelled before the session started",
+    });
+    log(runId, "cancelled (queued)");
+    return { ok: true, runId, status: "cancelled" };
+  }
+
   async function pump() {
     while (active < (config.maxConcurrent || 2) && queue.length > 0) {
       const run = queue.shift();
       active += 1;
       void execute(run)
         .catch((err) => {
+          // a cancelled run may fail on its way out (aborted prompt, dead
+          // session): cancellation wins over the failure it induced.
+          const flight = inFlight.get(run.id);
+          if (flight && flight.cancelled) { settleCancelled(run.id); return; }
           const message = String((err && err.message) || err).slice(0, 400);
           const attempt = run.attempts || 1;
           const transient = isTransientError(err);
@@ -486,6 +539,7 @@ function makeRunner(ctx, config, ledger, state, health) {
           }
         })
         .finally(() => {
+          inFlight.delete(run.id);
           active -= 1;
           void pump();
         });
@@ -493,6 +547,13 @@ function makeRunner(ctx, config, ledger, state, health) {
   }
 
   async function execute(run) {
+    // a cancel may land while the row sits in a retry backoff: the timer still
+    // re-enqueues it, so the dispatch itself has to re-check the ledger.
+    const current = ledger.runs().find((r) => r.id === run.id);
+    if (current && current.status === "cancelled") {
+      log(run.id, "skip dispatch: cancelled before start");
+      return;
+    }
     const sc = getSessionController();
     if (!sc || typeof sc.create !== "function" || typeof sc.prompt !== "function") {
       health.set("sessionController", "error", "宿主会话服务不可用：run 依赖 sessionController（web profile 默认可用）");
@@ -517,10 +578,16 @@ function makeRunner(ctx, config, ledger, state, health) {
     patchRun(run.id, { status: "running", attempts: attempt, startedAt: new Date().toISOString() });
     log(run.id, `start agent=${agent.name} kind=${run.kind} attempt=${attempt}/${retryMaxAttempts} cwd=${run.cwd}`);
 
+    const controller = new AbortController();
+    const flight = { sessionId: "", cancelled: false, controller };
+    inFlight.set(run.id, flight);
+
     const created = await sc.create({ cwd: run.cwd });
     const sessionId = created.sessionId;
+    flight.sessionId = sessionId;
     patchRun(run.id, { sessionId });
     log(run.id, `session ${sessionId}`);
+    if (flight.cancelled) { settleCancelled(run.id); return; }
 
     const modelStr = run.model || agent.model || config.defaultModel || "";
     if (modelStr && typeof sc.selectModel === "function") {
@@ -535,7 +602,6 @@ function makeRunner(ctx, config, ledger, state, health) {
       }
     }
 
-    const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.runTimeoutMs || 1800000);
     try {
       await sc.prompt(
@@ -557,15 +623,22 @@ function makeRunner(ctx, config, ledger, state, health) {
     let settled = false;
     while (Date.now() - startedAt < limit) {
       await new Promise((r) => setTimeout(r, pollIntervalMs));
+      if (flight.cancelled) break;
       let running = true;
       try {
         const list = await sc.list({}, new AbortController().signal);
         const row = (list.items || []).find((i) => i.sessionId === sessionId);
         running = row ? row.running : false;
       } catch { /* transient read error: keep waiting */ }
+      if (flight.cancelled) break;
       if (!running) { settled = true; break; }
     }
     clearTimeout(timer);
+
+    if (flight.cancelled) {
+      settleCancelled(run.id);
+      return;
+    }
 
     if (!settled) {
       try { sc.cancel({ sessionId }); } catch { /* best effort */ }
@@ -616,7 +689,7 @@ function makeRunner(ctx, config, ledger, state, health) {
     }
   }
 
-  return { enqueue, log, patchRun, makeRun, requeuePersisted, queueSize: () => queue.length, activeCount: () => active };
+  return { enqueue, log, patchRun, makeRun, requeuePersisted, cancelRun, queueSize: () => queue.length, activeCount: () => active };
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,6 +1197,23 @@ function registerRoutes(ctx, config, ledger, runner, state, health, pause) {
           const run = runner.makeRun(agent, { kind: "manual", trigger: "panel", taskText: String(body.prompt) });
           runner.enqueue(run);
           return writeJson(res, 200, { ok: true, runId: run.id });
+        } catch (err) {
+          return writeJson(res, 400, { error: String(err && err.message || err).slice(0, 200) });
+        }
+      },
+    }));
+
+    routes.push(wctx.webServer.register({
+      kind: "exact",
+      path: "/api/dsh-super-agents/run-cancel",
+      handler: async (req, res) => {
+        if (!isAllowedRequest(req, allowLan)) return writeJson(res, 403, { error: "forbidden: loopback-only" });
+        if ((req.method || "GET") !== "POST") return writeJson(res, 405, { error: "POST only" });
+        try {
+          const body = await readBody(req);
+          const out = runner.cancelRun(String(body.runId || ""));
+          if (!out.ok) return writeJson(res, out.error === "run not found" ? 404 : 409, out);
+          return writeJson(res, 200, out);
         } catch (err) {
           return writeJson(res, 400, { error: String(err && err.message || err).slice(0, 200) });
         }

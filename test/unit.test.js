@@ -251,3 +251,80 @@ test("runner: missing sessionController fails immediately with a clear code", as
   assert.equal(row.errorCode, "ERR_RUN_SESSION_CONTROLLER");
   assert.equal(row.attempts, 1);
 });
+
+test("runner: cancel a queued run settles it without dispatching", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let promptCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    prompt: async () => { promptCalls += 1; return {}; },
+    // the first run never goes idle, so the second one stays queued
+    list: async () => ({ items: [{ sessionId: "s-1", running: true }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc, { runTimeoutMs: 400 });
+  const blocker = runner.makeRun(agent, { taskText: "blocker" });
+  runner.enqueue(blocker);
+  const queued = runner.makeRun(agent, { taskText: "doomed" });
+  runner.enqueue(queued);
+  assert.equal(ledger.runs().find((r) => r.id === queued.id).status, "queued");
+  const out = runner.cancelRun(queued.id);
+  assert.equal(out.ok, true);
+  assert.equal(out.status, "cancelled");
+  const row = await waitForStatus(ledger, queued.id, ["cancelled"]);
+  assert.equal(row.status, "cancelled");
+  assert.match(row.error, /cancelled before the session started/);
+  await waitForStatus(ledger, blocker.id, ["timeout"]);
+  assert.equal(promptCalls, 1); // the cancelled run never reached the host
+});
+
+test("runner: cancel a running run cancels its session and settles as cancelled", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const cancelledSessions = [];
+  const sc = {
+    create: async () => ({ sessionId: "s-9" }),
+    prompt: async () => ({}),
+    list: async () => ({ items: [{ sessionId: "s-9", running: true }] }),
+    cancel: (arg) => cancelledSessions.push(arg && arg.sessionId),
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc, { runTimeoutMs: 2000 });
+  const run = runner.makeRun(agent, { taskText: "long job" });
+  runner.enqueue(run);
+  await waitForStatus(ledger, run.id, ["running"]);
+  await new Promise((r) => setTimeout(r, 40)); // let the poll loop start
+  const out = runner.cancelRun(run.id);
+  assert.equal(out.ok, true);
+  assert.equal(out.status, "cancelling");
+  const row = await waitForStatus(ledger, run.id, ["cancelled"]);
+  assert.equal(row.status, "cancelled");
+  assert.equal(row.error, "cancelled by operator");
+  assert.deepEqual(cancelledSessions, ["s-9"]);
+});
+
+test("runner: a cancel that aborts prompt settles cancelled, not failed", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const sc = {
+    create: async () => ({ sessionId: "s-2" }),
+    prompt: () => new Promise((resolve, reject) => setTimeout(() => reject(new Error("This operation was aborted")), 30)),
+    list: async () => ({ items: [{ sessionId: "s-2", running: true }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  await waitForStatus(ledger, run.id, ["running"]);
+  await new Promise((r) => setTimeout(r, 5)); // cancel while prompt is in flight
+  assert.equal(runner.cancelRun(run.id).ok, true);
+  const row = await waitForStatus(ledger, run.id, ["cancelled", "failed"]);
+  assert.equal(row.status, "cancelled");
+});
+
+test("runner: cancel refuses a run that already finished", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const { ledger, agent, runner } = makeTestRunner(dir, undefined);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.patchRun(run.id, { status: "done" });
+  assert.deepEqual(runner.cancelRun(run.id), { ok: false, error: "run already done" });
+  assert.equal(runner.cancelRun("r-missing").ok, false);
+  assert.equal(ledger.runs().find((r) => r.id === run.id).status, "done");
+});

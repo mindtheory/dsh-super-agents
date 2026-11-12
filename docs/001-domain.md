@@ -44,6 +44,7 @@ Run 的 `status` 是事实，不是意图。判定表从上往下读，第一行
 | `failed` | 执行抛错（含会话服务不可用、prompt 被拒） | 失败 | 是 |
 | `timeout` | 超过 `runTimeoutMs` 未结束，已取消 | 超时 | 是 |
 | `interrupted` | 宿主重启时该 Run 还在飞 | 已中断 | 是 |
+| `cancelled` | 人主动取消（面板/`run-cancel`）：排队中立即生效，运行中先通知会话再由 runner 落终态 | 已取消 | 否 |
 | `done_no_artifact` | 会话正常结束但没写产物文件 | 无产物 | 是（多半是产物路径/权限问题） |
 | `done` | 会话结束且产物存在 | 完成 | 否 |
 | `running` | 会话在跑 | 执行中 | 否 |
@@ -51,6 +52,7 @@ Run 的 `status` 是事实，不是意图。判定表从上往下读，第一行
 
 `queued` 的 Run 在宿主重启后会被**重新入队**（它从没开始过，重放是安全的）；
 `running` 的 Run 只能标 `interrupted`——它的会话随旧进程一起没了，重放可能造成外部副作用。
+`cancelled` 是终态：启动清扫只重放 `queued`，取消过的 Run 不会被重跑。
 
 ## 幂等 id
 

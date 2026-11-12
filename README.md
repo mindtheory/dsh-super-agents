@@ -78,7 +78,7 @@ missing `sessionController`, `4xx`) fail immediately with an `errorCode`
 |---|---|
 | `sa_agent` | Persona card CRUD: `create` / `list` / `show` / `update` / `delete` |
 | `sa_run` | Dispatch a task to an agent (async; returns `runId`) |
-| `sa_runs` | List runs (`queued/running/done/done_no_artifact/failed/timeout/interrupted`) |
+| `sa_runs` | List runs (`queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled`) |
 | `sa_run_result` | Fetch a run's full artifact |
 | `sa_say` | Follow-up message into a run's session |
 | `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` / `delete` |
@@ -106,6 +106,9 @@ sa_run_result     → collect any run's artifact anytime
 1. `sa_run` persists a run row and enqueues it (concurrency-capped queue).
 2. The runner creates a host session (`sessionController.create`), selects the agent's model, and prompts it with: persona + playbook + task + **artifact contract** (write the full deliverable to `<cwd>/.sa-results/<runId>.md`, first line = one-sentence verdict).
 3. The runner polls session liveness until idle (or timeout → cancelled).
+   A queued or running run can be cancelled on demand from the panel row or
+   `POST /api/dsh-super-agents/run-cancel` with `{runId}` — queued rows settle
+   immediately, running rows get a session cancel and settle as `cancelled`.
 4. Status is settled from the artifact's presence; if `learn` is on, a reflection run follows and its lessons are appended to the playbook.
 
 Artifacts live inside the run's working directory on purpose: worker sessions run under a workspace-write sandbox and cannot write outside their cwd.

@@ -802,6 +802,49 @@ function parseModelString(model) {
   return model.includes("/");
 }
 
+// Follow-up delivery to a run's session (LobeHub #22377: steer a running
+// sub-agent instead of refusing the follow-up). A run that is still executing
+// takes the message as `steer`, which the host injects before its next step so
+// the operator can correct course mid-run; an ended run takes it as `queue`, a
+// normal follow-up turn. `requestedMode` lets the operator force either one.
+function sayMode(run, requestedMode) {
+  if (requestedMode === "queue" || requestedMode === "steer") return requestedMode;
+  return run && run.status === "running" ? "steer" : "queue";
+}
+
+function sayRequest(run, message, requestedMode, requestId) {
+  return {
+    requestId: requestId || `sa-say-${randomUUID().slice(0, 8)}`,
+    sessionId: (run && run.sessionId) || "",
+    mode: sayMode(run, requestedMode),
+    content: [{ type: "text", text: String(message == null ? "" : message) }],
+  };
+}
+
+// The host refuses `steer` with `session/steer-unavailable` once no turn is
+// active (the run ended between the status read and the prompt). Only that
+// deterministic rejection falls back to `queue`; any other failure propagates,
+// because a blind retry after an unknown outcome could deliver twice.
+function isSteerUnavailable(err) {
+  const code = String((err && (err.code || err.message)) || err || "").toLowerCase();
+  return code.includes("steer") && (code.includes("unavailable") || code.includes("no active"));
+}
+
+async function deliverSay(run, message, requestedMode, sc, opts = {}) {
+  const requestId = (opts && opts.requestId) || `sa-say-${randomUUID().slice(0, 8)}`;
+  const signal = (opts && opts.signal) || new AbortController().signal;
+  const first = sayRequest(run, message, requestedMode, requestId);
+  try {
+    await sc.prompt(first, signal);
+    return { mode: first.mode, steered: first.mode === "steer", fallback: false };
+  } catch (err) {
+    if (first.mode !== "steer" || !isSteerUnavailable(err)) throw err;
+    const queued = { ...first, requestId: `${requestId}-queue`, mode: "queue" };
+    await sc.prompt(queued, signal);
+    return { mode: queued.mode, steered: false, fallback: true };
+  }
+}
+
 function registerTools(ctx, config, ledger, runner, scheduler, state, health, pause) {
   ctx.tools.register(defineTool({
     name: "sa_agent",
@@ -940,25 +983,38 @@ function registerTools(ctx, config, ledger, runner, scheduler, state, health, pa
 
   ctx.tools.register(defineTool({
     name: "sa_say",
-    description: "对某次运行所在的会话追加指令（续聊）：适合补充要求、追问结果细节。运行中的会话会排队到当前轮之后。",
+    description:
+      "对某次运行所在的会话追加指令（续聊/纠偏）：运行中的 Run 以 steer 注入，在当前轮下一个步骤前生效（不打断产物，可中途改方向）；已结束的 Run 以 queue 追加新一轮。`mode` 可强制 queue（总是新开一轮）或 steer。",
     parameters: {
       runId: { type: "string", required: true, description: "目标运行 id（须已有 sessionId）" },
       message: { type: "string", required: true, description: "追加的消息" },
+      mode: { type: "string", enum: ["auto", "queue", "steer"], description: "auto（默认）：运行中用 steer、已结束用 queue；queue：总是追加新一轮；steer：仅在运行中注入" },
     },
     output: TEXT_OUTPUT,
     async execute(args) {
       const run = ledger.runs().find((r) => r.id === args.runId);
       if (!run) throw new Error(`run 不存在: ${args.runId}`);
       if (!run.sessionId) throw new Error("该运行还没有会话（尚未开始执行）");
+      const message = String(args.message == null ? "" : args.message);
+      if (!message.trim()) throw new Error("消息不能为空");
       let sc = null;
       try { sc = typeof ctx.get === "function" ? ctx.get("sessionController") : null; } catch { sc = null; }
       if (!sc) sc = ctx.sessionController;
       if (!sc || typeof sc.prompt !== "function") throw new Error("sessionController 不可用");
-      await sc.prompt(
-        { requestId: `sa-say-${randomUUID().slice(0, 8)}`, sessionId: run.sessionId, mode: "queue", content: [{ type: "text", text: args.message }] },
-        new AbortController().signal,
-      );
-      return json({ ok: true, runId: run.id, sessionId: run.sessionId, accepted: true });
+      const requested = args.mode === "queue" || args.mode === "steer" ? args.mode : null;
+      const delivered = await deliverSay(run, message, requested, sc);
+      try {
+        appendLine(run.logPath || ledger.logPath(run.id), `[${new Date().toISOString()}] say ${delivered.mode}${delivered.fallback ? " (steer unavailable, queued)" : ""}`);
+      } catch { /* logging must never lose the delivery result */ }
+      return json({
+        ok: true,
+        runId: run.id,
+        sessionId: run.sessionId,
+        mode: delivered.mode,
+        steered: delivered.steered,
+        fallback: delivered.fallback,
+        accepted: true,
+      });
     },
   }));
 
@@ -1358,7 +1414,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};
@@ -1410,7 +1466,7 @@ export function apply(ctx, config) {
       const lines = agents.slice(0, 12).map((a) => `- ${a.id} 「${a.name}」${a.model ? ` model=${a.model}` : ""}`).join("\n");
       return [
         "本机装有 dsh-super-agents 插件：持久化超级智能体可后台领活与自学习。",
-        "可用工具：sa_agent（角色卡）、sa_run（派活）、sa_runs/sa_run_result（回收）、sa_say（续聊）、sa_schedule（定时自主）、sa_learn（经验沉淀）、sa_health（健康与暂停）。",
+        "可用工具：sa_agent（角色卡）、sa_run（派活）、sa_runs/sa_run_result（回收）、sa_say（续聊/运行中纠偏）、sa_schedule（定时自主）、sa_learn（经验沉淀）、sa_health（健康与暂停）。",
         "当前在册 agent：",
         lines,
       ].join("\n");

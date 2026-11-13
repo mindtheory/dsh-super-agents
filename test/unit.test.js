@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -327,4 +327,61 @@ test("runner: cancel refuses a run that already finished", async () => {
   assert.deepEqual(runner.cancelRun(run.id), { ok: false, error: "run already done" });
   assert.equal(runner.cancelRun("r-missing").ok, false);
   assert.equal(ledger.runs().find((r) => r.id === run.id).status, "done");
+});
+
+test("say: a running run steers by default, an ended run queues", () => {
+  assert.equal(sayMode({ status: "running" }, null), "steer");
+  assert.equal(sayMode({ status: "done" }, null), "queue");
+  assert.equal(sayMode({ status: "queued" }, null), "queue");
+  // explicit operator choice wins over the run state
+  assert.equal(sayMode({ status: "running" }, "queue"), "queue");
+  assert.equal(sayMode({ status: "done" }, "steer"), "steer");
+  const req = sayRequest({ status: "running", sessionId: "s-1" }, "改方向", null, "req-1");
+  assert.equal(req.requestId, "req-1");
+  assert.equal(req.sessionId, "s-1");
+  assert.equal(req.mode, "steer");
+  assert.deepEqual(req.content, [{ type: "text", text: "改方向" }]);
+});
+
+test("say: deliver steers a running run and queues a finished one", async () => {
+  const calls = [];
+  const sc = { prompt: async (req) => { calls.push(req); return {}; } };
+  const running = await deliverSay({ id: "r-1", status: "running", sessionId: "s-1" }, "纠正", null, sc, { requestId: "q-1" });
+  assert.equal(running.mode, "steer");
+  assert.equal(running.steered, true);
+  assert.equal(running.fallback, false);
+  assert.equal(calls[0].mode, "steer");
+  await deliverSay({ id: "r-2", status: "done", sessionId: "s-2" }, "追问", null, sc, { requestId: "q-2" });
+  assert.equal(calls[1].mode, "queue");
+  assert.equal(calls[1].content[0].text, "追问");
+});
+
+test("say: a steer refused because the turn ended falls back to queue once", async () => {
+  const calls = [];
+  const sc = {
+    prompt: async (req) => {
+      calls.push(req);
+      if (req.mode === "steer") {
+        const err = new Error("session/steer-unavailable: no active turn");
+        err.code = "session/steer-unavailable";
+        throw err;
+      }
+      return {};
+    },
+  };
+  const out = await deliverSay({ id: "r-3", status: "running", sessionId: "s-3" }, "补充", null, sc, { requestId: "q-3" });
+  assert.deepEqual(out, { mode: "queue", steered: false, fallback: true });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].mode, "steer");
+  assert.equal(calls[1].mode, "queue");
+  assert.equal(calls[1].requestId, "q-3-queue"); // distinct id: no duplicate delivery
+});
+
+test("say: an unknown delivery failure propagates instead of retrying blind", async () => {
+  let calls = 0;
+  const sc = { prompt: async () => { calls += 1; throw new Error("socket hang up"); } };
+  await assert.rejects(() => deliverSay({ id: "r-4", status: "running", sessionId: "s-4" }, "x", null, sc), /socket hang up/);
+  assert.equal(calls, 1); // never a second send after an unknown outcome
+  assert.equal(isSteerUnavailable(new Error("socket hang up")), false);
+  assert.equal(isSteerUnavailable({ code: "session/steer-unavailable" }), true);
 });

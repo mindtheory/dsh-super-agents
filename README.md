@@ -80,10 +80,17 @@ missing `sessionController`, `4xx`) fail immediately with an `errorCode`
 | `sa_run` | Dispatch a task to an agent (async; returns `runId`) |
 | `sa_runs` | List runs (`queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled`) |
 | `sa_run_result` | Fetch a run's full artifact |
-| `sa_say` | Follow-up message into a run's session |
+| `sa_say` | Follow-up message into a run's session (`steer` while it runs, `queue` after it ends) |
 | `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` / `delete` |
 | `sa_learn` | Append lessons manually, or distill from a finished run |
 | `sa_health` | Health board (`scheduler` / `runner` / `sessionController` / `pause`) + global schedule pause/resume |
+
+`sa_say` steers a **running** run: the message is injected before its next step
+(`mode: "steer"`), so the operator can correct course without cancelling it or waiting
+for the turn to end; a finished run gets a normal follow-up turn (`mode: "queue"`).
+Pass `mode` explicitly to force either one. If the run ends between the status read and
+the injection, the host rejects it as `session/steer-unavailable` and the message is
+queued once instead of being lost.
 
 A matching **skill** (`super-agents`) is registered so the host model knows when and how to use these tools.
 

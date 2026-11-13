@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-12T13:05:00-05:00",
+  "checkedAt": "2026-11-13T13:02:36-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
-    "head": "ec498266000c0f24d6abca2abdd920d26a388301",
+    "head": "59dbc1e5b9e1503d81cd16fa66f3c66c8dc0fbf0",
     "version": "0.1.0"
   },
   "dsh": {
@@ -16,18 +16,19 @@
       "repo": "deepseek-ai/deepseek-harness",
       "npmPackage": "@deepseek-ai/dsh",
       "npmPackageNote": "2026-11-12 口径修正：`npm view dsh version` 返回 1.0.1 是 2016 年的同名无关包（infusion/node-dsh），不能作为 DSH 版本信号；必须查 scoped 包 @deepseek-ai/dsh。属测量口径修正，不是上游变更。",
-      "latestReleaseTag": "dsh-v0.2.2-rc.2",
-      "latestReleaseAt": "2026-11-11T11:33:06Z",
-      "releaseChanged": false,
+      "latestReleaseTag": "dsh-v0.2.2-rc.3",
+      "latestReleaseAt": "2026-11-13T07:56:55Z",
+      "releaseChanged": true,
       "npmDistTagLatest": "0.2.2-rc.1",
       "upgradeAvailable": true,
       "headlineChanges": [
-        "SubAgent 支持具名、多层协作；AgentTeam 按会话开启并改用统一具名子代理（中断工具默认关闭，属破坏性变更，自定义插件/SDK 集成需迁移）",
-        "模型请求重试可在模型设置中配置条件/次数/等待时间",
-        "工具失败提供更明确的错误类型与代码",
-        "PTC 重复等待子代理消息不再反复唤醒（同一条消息只唤醒一次）"
+        "实验性「DeepSeek 会话导入」插件：把 DeepSeek App/网页版历史会话导入工作区并继续对话（rc.3）",
+        "修复 Windows 桌面版应用内更新失败后无法自动重开（rc.3）",
+        "（rc.2，已于 2026-11-11 记录）SubAgent 具名多层协作 / AgentTeam 按会话开启 / 可配置重试 / 工具错误类型"
       ],
-      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.2。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。"
+      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.3。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。rc.3 两项均为宿主层插件/桌面更新修复，无可移植到本插件的运行时能力。",
+      "npmDistTagNext": "0.2.2-rc.3",
+      "npmQueryMethodNote": "2026-11-13：本机 `npm view` 因 ~/.npm 缓存含 root 属主文件报 EACCES，改用 registry HTTP 直接读 dist-tags（https://registry.npmjs.org/@deepseek-ai%2Fdsh）：latest=0.2.2-rc.1（2026-11-04），next=0.2.2-rc.3。"
     }
   },
   "officialPackages": {
@@ -78,22 +79,22 @@
     },
     "resolvedTracked": {
       "dsh-goal": {
-        "mtime": 1792548723.7042063,
+        "mtime": 1792548723.7042062,
         "mtimeIso": "2026-10-21T02:12:03.704Z",
         "latestFile": "dsh-goal/README.i18n.yaml"
       },
       "dsh-tool-goal": {
-        "mtime": 1792548722.5521992,
+        "mtime": 1792548722.5521991,
         "mtimeIso": "2026-10-21T02:12:02.552Z",
         "latestFile": "dsh-tool-goal/README.i18n.yaml"
       },
       "dsh-subagent": {
-        "mtime": 1792548725.0282144,
+        "mtime": 1792548725.0282145,
         "mtimeIso": "2026-10-21T02:12:05.028Z",
         "latestFile": "dsh-subagent/README.i18n.yaml"
       },
       "dsh-tool-subagent": {
-        "mtime": 1792548723.0962025,
+        "mtime": 1792548723.0962026,
         "mtimeIso": "2026-10-21T02:12:03.096Z",
         "latestFile": "dsh-tool-subagent/README.i18n.yaml"
       },
@@ -102,7 +103,8 @@
         "mtimeIso": "2026-10-21T02:12:04.320Z",
         "latestFile": "dsh-experimental-agent-team/README.i18n.yaml"
       }
-    }
+    },
+    "checkedAt": "2026-11-13T13:02:00-05:00"
   },
   "prototypeRepo": {
     "repo": "deepseek-ai/dsh-superagent-prototype",
@@ -111,24 +113,25 @@
     "message": "feat: add the dsh-superagent research prototype",
     "pushedAt": "2026-11-03T09:29:14Z",
     "changed": false,
-    "note": "上游原型 repo 自基线前即无新提交；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。"
+    "note": "上游原型 repo 自基线前即无新提交；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。",
+    "checkedAt": "2026-11-13T13:01:00-05:00"
   },
   "lobehub": {
     "repo": "lobehub/lobehub",
     "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=30",
-    "sha": "14b10542fe41",
-    "commitDate": "2026-11-12T17:50:33Z",
-    "message": "✅ test(upload): separate missing-size validation from token path restrictions (#22932)",
-    "previousSha": "efd8d0dc5a261167674954501fa4bf4c0e60f429",
+    "sha": "cb7aa3ef86b207ecab7ff8beb7a837cf5a6214ee",
+    "commitDate": "2026-11-13T17:40:19Z",
+    "message": "💄 style(projects): calm folder card light tones, drop pocket blur (#22982)",
+    "previousSha": "14b10542fe41",
     "fetchFailed": false,
-    "note": "当日 super-agent 相关提交评估：6d52b97abe13 `feat(lobe-agent): cancel a running sub-agent (#22496)` → 已移植为 run 取消（ec49826）；1c4ee6ba2fc1 修幽灵 pending 状态 → 本仓库无此问题；channel/TTS/goal-share/creds/sandbox 类不移植（宿主 UI 或安全红线）。"
+    "note": "2026-11-13 评估 14b10542 之后的 19 个提交：6444fde0e864 `feat(sub-agent): steer a running sub-agent instead of refusing the follow-up (#22377)` → 已移植为 sa_say 的 steer 投递（59dbc1e）；其余为 UI/channel/device/TTS/creds/sandbox 类，不移植（宿主 UI 或安全红线）。"
   },
   "web": {
-    "lastQuery": "DeepSeek Harness super agent | dsh-superagent-prototype github | deepseek-harness release 0.2.2 super agent",
-    "lastResultNote": "仍只命中原型 repo、新闻稿与一篇 0.2.2 更新解读，无 release notes 之外的增量能力信息。"
+    "lastQuery": "DeepSeek Harness super agent | dsh-v0.2.2-rc.3 super agent | dsh-superagent-prototype news",
+    "lastResultNote": "仍只命中原型 repo、第三方插件（oxmumu3/dsh-superagent、1720198650/dsh-cognition-engine）与新闻稿，无 release notes 之外的增量能力信息。"
   },
   "testBaseline": {
-    "unit": "22/22 pass",
+    "unit": "26/26 pass",
     "smoke": "SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully",
     "allGreen": true,
     "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。"
@@ -168,6 +171,20 @@
       "title": "移植 LobeHub #22496「取消运行中的子代理」→ queued/running 的 Run 可主动取消",
       "action": "implemented",
       "commit": "ec49826"
+    },
+    {
+      "date": "2026-11-13",
+      "id": "upstream-0.2.2-rc.3",
+      "title": "上游 DSH 发布 0.2.2-rc.3（实验性 DeepSeek 会话导入插件；Windows 应用内更新修复）",
+      "action": "评估：无可移植运行时能力；不升级本机安装（红线），记录待人工",
+      "commit": null
+    },
+    {
+      "date": "2026-11-13",
+      "id": "lobehub-steer-running-run",
+      "title": "移植 LobeHub #22377「steer a running sub-agent instead of refusing the follow-up」→ sa_say 运行中 steer",
+      "action": "implemented",
+      "commit": "59dbc1e"
     }
   ]
 }

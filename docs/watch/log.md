@@ -156,3 +156,59 @@ LobeHub 当日新增 `cancel a running sub-agent`（#22496）属可移植项，�
 - `state.json` 的 `dsh.upstream` 本次新增 `npmPackage` 字段，避免下次再被同名 npm 包误导。
 
 
+
+---
+
+## 2026-11-13 · 第五次运行：上游 rc.3 发布（无可移植项），移植 LobeHub「运行中 steer 子代理」
+
+### 一、逐源检查
+
+| 检查项 | 实测结果 |
+| --- | --- |
+| 工作目录 / 仓库 HEAD | `/home/canetwork/dsh/dsh-super-agents` · 基线 `3cea4c8`（本次功能提交前） |
+| dsh 版本 | `0.2.1-rc.2`（`dsh --version` 与 `<dsh>/package.json` 一致，本机未升级，红线） |
+| 上游 release | **新版本 `dsh-v0.2.2-rc.3`**（2026-11-13T07:56:55Z），基线为 rc.2 |
+| npm dist-tags | `latest=0.2.2-rc.1`（2026-11-04）、`next=0.2.2-rc.3`；`npm view` 因 ~/.npm 缓存属主报 EACCES，改 registry HTTP |
+| 官方包 mtime | 9 个关注包（+ resolvedTracked）仍全为 2026-10-21T02:12Z 一批，无源码变更；包数 305 |
+| 上游原型 repo | `deepseek-ai/dsh-superagent-prototype` 最新 commit 仍 `8c32a9d`（2026-10-31），无变化 |
+| lobehub/lobehub | 新 head `cb7aa3ef86b2`（2026-11-13T17:40Z），基线 `14b10542`；中间 19 个提交 |
+| Web 检索 | 三组检索仍只命中原型 repo、第三方插件与新闻稿，无 release notes 之外的增量 |
+| 单元测试 | `26/26 pass`（`node --test test/unit.test.js`，/tmp 副本） |
+| 冒烟测试 | `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully` |
+
+### 二、上游 rc.3 评估
+
+- 新增：实验性「DeepSeek 会话导入」插件（DeepSeek App/网页版历史会话导入工作区）→ 宿主层插件，本插件无权也无必要复刻。
+- 修复：Windows 桌面版应用内更新失败后无法重开 → 桌面端外壳问题，不涉及本插件。
+- 结论：**无可移植运行时能力**，只更新基线。升级仍待人工（红线：不改安装目录）。
+
+### 三、LobeHub 当日相关提交评估
+
+- **可移植并已实现**：`6444fde0e864` ✨ `feat(sub-agent): steer a running sub-agent instead of refusing the follow-up (#22377)`
+  → 本仓库 `sa_say` 原先固定 `mode: "queue"`：运行中的 Run 收到指令只能排到当前轮之后，
+  无法中途纠偏（只能取消重派），属真实运维缺口。宿主 `sessionController.prompt`
+  本身支持 `'queue' | 'steer'`（`steer` 在下一个步骤前注入），因此这是纯 plugin 层接线。
+- 该提交同时把 #22496「取消再重发」的指引改成 steer；与上次移植的 cancel 互补而非冲突：
+  cancel 用于「结果不再需要」，steer 用于「方向要改」。
+- 不移植：channel/thread、desktop device 注册、TTS、file-viewer、projects UI（宿主 UI 能力）；
+  creds / OAuth / sandbox fence（安全红线，只记录不自动改）。
+
+### 四、行动与提交
+
+- `59dbc1e` **feat: steer a running run with sa_say instead of only queueing**
+  - `sayMode(run, requested)`：运行中默认 `steer`，已结束默认 `queue`，显式 `mode` 覆盖。
+  - `sayRequest(...)`：组装 `{requestId, sessionId, mode, content}`（宿主 prompt 契约）。
+  - `isSteerUnavailable(err)`：只认确定性拒绝（`session/steer-unavailable` / `no active`）。
+  - `deliverSay(...)`：steer 被拒（读状态与投递之间 Run 恰好结束）→ **仅该确定性拒绝**回退 queue 一次，
+    且换 requestId（`-queue` 后缀）避免重复投递；其他失败原样抛出，绝不盲重试。
+  - `sa_say` 新增 `mode` 参数（auto/queue/steer）、空消息校验、投递后写 run 日志（`say steer`/`say queue`）。
+  - 测试 +4：运行中默认 steer、已结束 queue、steer 被拒回退一次且 id 不同、未知失败只发一次。
+  - 文档：README 工具表 + 段落、技能文档 `sa_say` 行、系统提示「续聊/运行中纠偏」。
+- 本提交（`chore: update watch baseline`）只改 `docs/watch/`。
+
+### 五、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.3**：待人工决定（红线：不改 DSH 安装目录）。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- `npm view` 的 EACCES（~/.npm 缓存含 root 属主文件）属本机环境问题，本次改走 registry HTTP；
+  若要修缓存需 `sudo chown -R 1000:1000 ~/.npm`，涉及权限，不自动执行。

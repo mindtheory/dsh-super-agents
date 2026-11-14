@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-13T13:02:36-05:00",
+  "checkedAt": "2026-11-14T13:03:05-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
-    "head": "59dbc1e5b9e1503d81cd16fa66f3c66c8dc0fbf0",
+    "head": "a83407a9140eb57e2ea60fc9a1c2958db9a05d14",
     "version": "0.1.0"
   },
   "dsh": {
@@ -18,7 +18,9 @@
       "npmPackageNote": "2026-11-12 口径修正：`npm view dsh version` 返回 1.0.1 是 2016 年的同名无关包（infusion/node-dsh），不能作为 DSH 版本信号；必须查 scoped 包 @deepseek-ai/dsh。属测量口径修正，不是上游变更。",
       "latestReleaseTag": "dsh-v0.2.2-rc.3",
       "latestReleaseAt": "2026-11-13T07:56:55Z",
-      "releaseChanged": true,
+      "releaseChanged": false,
+      "releaseCheckedAt": "2026-11-14T13:02:40-05:00",
+      "releaseCheckNote": "2026-11-14：`releases/latest` 对 deepseek-harness 返回 404（GitHub 该端点在本仓库上不可用），改用 `releases?per_page=3` 取列表首项判定，仍为 rc.3；下次沿用列表口径，别再只看 latest 端点。",
       "npmDistTagLatest": "0.2.2-rc.1",
       "upgradeAvailable": true,
       "headlineChanges": [
@@ -26,7 +28,7 @@
         "修复 Windows 桌面版应用内更新失败后无法自动重开（rc.3）",
         "（rc.2，已于 2026-11-11 记录）SubAgent 具名多层协作 / AgentTeam 按会话开启 / 可配置重试 / 工具错误类型"
       ],
-      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.3。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。rc.3 两项均为宿主层插件/桌面更新修复，无可移植到本插件的运行时能力。",
+      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.3。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。rc.3 两项均为宿主层插件/桌面更新修复，无可移植到本插件的运行时能力。2026-11-14 复查：无新 release、npm dist-tags 未变、SOURCE mtime 未变。",
       "npmDistTagNext": "0.2.2-rc.3",
       "npmQueryMethodNote": "2026-11-13：本机 `npm view` 因 ~/.npm 缓存含 root 属主文件报 EACCES，改用 registry HTTP 直接读 dist-tags（https://registry.npmjs.org/@deepseek-ai%2Fdsh）：latest=0.2.2-rc.1（2026-11-04），next=0.2.2-rc.3。"
     }
@@ -104,7 +106,7 @@
         "latestFile": "dsh-experimental-agent-team/README.i18n.yaml"
       }
     },
-    "checkedAt": "2026-11-13T13:02:00-05:00"
+    "checkedAt": "2026-11-14T13:02:30-05:00"
   },
   "prototypeRepo": {
     "repo": "deepseek-ai/dsh-superagent-prototype",
@@ -114,24 +116,25 @@
     "pushedAt": "2026-11-03T09:29:14Z",
     "changed": false,
     "note": "上游原型 repo 自基线前即无新提交；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。",
-    "checkedAt": "2026-11-13T13:01:00-05:00"
+    "checkedAt": "2026-11-14T13:01:30-05:00"
   },
   "lobehub": {
     "repo": "lobehub/lobehub",
-    "api": "https://api.github.com/repos/lobehub/lobehub/commits?per_page=30",
-    "sha": "cb7aa3ef86b207ecab7ff8beb7a837cf5a6214ee",
-    "commitDate": "2026-11-13T17:40:19Z",
-    "message": "💄 style(projects): calm folder card light tones, drop pocket blur (#22982)",
-    "previousSha": "14b10542fe41",
+    "api": "https://api.github.com/repos/lobehub/lobehub/commits?since=<prevHead date>&per_page=100",
+    "sha": "1b9d3c6ac646260358cc9b4656bade1c107945ed",
+    "commitDate": "2026-11-14T18:00:19Z",
+    "message": "⚡️ perf(devdock): query keys only in the Local Database inspector (#23023)",
+    "previousSha": "cb7aa3ef86b2",
     "fetchFailed": false,
-    "note": "2026-11-13 评估 14b10542 之后的 19 个提交：6444fde0e864 `feat(sub-agent): steer a running sub-agent instead of refusing the follow-up (#22377)` → 已移植为 sa_say 的 steer 投递（59dbc1e）；其余为 UI/channel/device/TTS/creds/sandbox 类，不移植（宿主 UI 或安全红线）。"
+    "note": "2026-11-14 评估 cb7aa3ef 之后的 27 个提交：无一可移植到本插件的运行时能力。ab883dde06/e5d6033293（lh agent create/list --tag）是 LobeHub 云端 agent CLI 的标签过滤——本插件常驻 agent 仅个位数，加标签属为对齐而加（001 被拒概念）；553d091d29（agent 文档索引跨轮缓存）、4ac339bcf1（MCP connector 迁移）属宿主/服务端能力；其余为 UI（hover 卡片、devdock、projects）、TTS/music、OIDC/creds/sandbox 类，不移植。"
   },
   "web": {
-    "lastQuery": "DeepSeek Harness super agent | dsh-v0.2.2-rc.3 super agent | dsh-superagent-prototype news",
-    "lastResultNote": "仍只命中原型 repo、第三方插件（oxmumu3/dsh-superagent、1720198650/dsh-cognition-engine）与新闻稿，无 release notes 之外的增量能力信息。"
+    "lastQuery": "DeepSeek Harness super agent dsh plugin | dsh-superagent-prototype update | DeepSeek Harness 0.2.2 super agent",
+    "lastResultNote": "2026-11-14：仍只命中原型 repo、Windows 适配 fork（deepsleepzzz0211）、第三方实现（oxmumu3/dsh-superagent、TianzeLuo/dsh-super-agent、aowind/dsh-super-agent、ccndagent）与 rc.2 解析文章，无 release notes 之外的增量能力信息。",
+    "checkedAt": "2026-11-14T13:02:50-05:00"
   },
   "testBaseline": {
-    "unit": "26/26 pass",
+    "unit": "31/31 pass",
     "smoke": "SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully",
     "allGreen": true,
     "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。"
@@ -185,6 +188,27 @@
       "title": "移植 LobeHub #22377「steer a running sub-agent instead of refusing the follow-up」→ sa_say 运行中 steer",
       "action": "implemented",
       "commit": "59dbc1e"
+    },
+    {
+      "date": "2026-11-14",
+      "id": "upstream-0.2.2-rc.3-recheck",
+      "title": "复查上游：无新 release（仍 rc.3）、npm dist-tags 未变、13 个关注包 mtime 未变、原型 repo 无新提交",
+      "action": "no-action（只更新基线）",
+      "commit": null
+    },
+    {
+      "date": "2026-11-14",
+      "id": "lobehub-review-27",
+      "title": "评估 LobeHub cb7aa3ef 之后 27 个提交（agent tags / 文档索引缓存 / MCP connector 等）",
+      "action": "no-action（无可移植运行时能力，理由记入 lobehub.note）",
+      "commit": null
+    },
+    {
+      "date": "2026-11-14",
+      "id": "event-driven-completion",
+      "title": "R2 收口：完成判定由 5s 轮询改为订阅宿主 api-session/status 事件，轮询降为兜底",
+      "action": "implemented",
+      "commit": "a83407a"
     }
   ]
 }

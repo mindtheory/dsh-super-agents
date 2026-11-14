@@ -212,3 +212,70 @@ LobeHub 当日新增 `cancel a running sub-agent`（#22496）属可移植项，�
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - `npm view` 的 EACCES（~/.npm 缓存含 root 属主文件）属本机环境问题，本次改走 registry HTTP；
   若要修缓存需 `sudo chown -R 1000:1000 ~/.npm`，涉及权限，不自动执行。
+
+---
+
+## 2026-11-14 · 第六次运行：上游无变化；R2 收口（完成判定改为宿主事件，轮询降为兜底）
+
+### 一、逐源检查
+
+| 检查项 | 实测结果 |
+| --- | --- |
+| 工作目录 / 仓库 HEAD | `/home/canetwork/dsh/dsh-super-agents` · 基线 `b1675e3`（本次功能提交前） |
+| dsh 版本 | `0.2.1-rc.2`（`dsh --version` 与 `<dsh>/package.json` 一致，本机未升级，红线） |
+| 上游 release | **无新版本**，仍 `dsh-v0.2.2-rc.3`（2026-11-13T07:56:55Z）；`releases/latest` 端点本次返回 404，改 `releases?per_page=3` 列表口径 |
+| npm dist-tags | `latest=0.2.2-rc.1`、`next=0.2.2-rc.3`，与基线一致（registry HTTP 口径） |
+| 官方包 mtime | 9 个关注包（+ resolvedTracked 共 13 项）仍全为 2026-10-21T02:12Z 一批，包数 305，无源码变更 |
+| 上游原型 repo | `deepseek-ai/dsh-superagent-prototype` 最新 commit 仍 `8c32a9d`（2026-10-31），无变化 |
+| lobehub/lobehub | 新 head `1b9d3c6ac646`（2026-11-14T18:00Z），基线 `cb7aa3ef`；中间 27 个提交 |
+| Web 检索 | 三组检索仍只命中原型 repo、Windows 适配 fork、第三方实现（oxmumu3 / TianzeLuo / aowind / ccndagent）与 rc.2 解析文，无增量能力信息 |
+| 单元测试 | `31/31 pass`（`node --test test/unit.test.js`，/tmp 副本） |
+| 冒烟测试 | `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully` |
+
+### 二、上游评估
+
+rc.3 已于上次记录（会话导入插件 + Windows 应用内更新修复），本次复查无新 release、无源码变更。
+升级到 0.2.2-rc.3 仍待人工（红线：不改安装目录），无常驻动作。
+
+### 三、LobeHub 27 个提交评估（无可移植项）
+
+- `ab883dde06` `✨ feat(cli): add --tag to lh agent create`、`e5d6033293` `✨ feat(agent): filter the agent list by tag`
+  → LobeHub 云端 agent 的标签创建/过滤。本插件常驻 agent 个位数，加标签概念收益低于概念成本（001 被拒概念）。
+- `553d091d29` `⚡️ perf(agent-documents)`：服务端上下文引擎的文档索引跨轮缓存，宿主/服务端能力，非插件层。
+- `4ac339bcf1` `♻️ refactor(plugin): install MCPs as connectors`：宿主插件系统内部迁移。
+- 其余：workspace hover 卡片、devdock/本地数据库、projects 样式、TTS（Fish Audio / Gemini / Doubao）、
+  music 生成、execution-target 排序、OIDC/creds/sandbox 类 → 宿主 UI 或安全红线，不移植。
+
+### 四、本次实现：事件驱动完成（R2 收口）
+
+`docs/003-engineering.md` 的 R2 一直挂着「完成判定从轮询 `sc.list()` 改为订阅宿主事件（若 sessionController
+暴露 status 事件）」。本次核对宿主包 `dsh-api-session-controller`：
+
+- cordis 事件声明里确有 `'api-session/status'(sessionId: SessionId, running: boolean)`（"One Agent changed
+  running state"），另有 `api-session/added|removed|activity|failed`；非文档猜想要件，是可用的宿主契约。
+- 因此 runner 不必再每 5s 读一次全量列表：事件到了就能立刻落终态，`sa_runs` 的 running→done 延迟从
+  「最多一个 poll 周期」降到「事件到达」。
+
+实现（`a83407a`）：
+
+- 新增 `makeIdleWatcher({timeoutMs})`：按 `sessionId` 维护 waiter 集合，
+  `wait(sessionId, signal)` 一次性 resolve `'idle' | 'aborted' | 'poll'`；`onStatus(sessionId, running)`
+  只认 `running === false`；abort / 超时 / 迟到事件都保证清理 waiter、不抛。
+- `makeRunner` 里 `ctx.on("api-session/status", ...)` **只订阅一次**（`typeof ctx.on === "function"` 防御），
+  避免每次 run 注册 listener 造成泄漏。
+- `execute()` 的 sleep 轮询改为 `idleWatcher.wait(sessionId, controller.signal)`：`idle` 直接结算，
+  `aborted`（取消/超时）立即跳出，`poll` 才走原来的 `sc.list()` 兜底。取消不再需要等下一 tick 才生效。
+- 保留轮询的理由写进代码注释：丢事件（旧宿主、Remote owner 重启）不能让 Run 永久挂着；超时仍按
+  `runTimeoutMs` → `timeout` 落终态，行为与之前一致。
+- 测试 +5（31 全绿）：事件结算为 idle、`running=true` 与他会话事件不结算、abort 结算并清理、
+  空 sessionId/迟到事件无害、以及「list 永远报 running=true 时只靠事件也能 done」（证明接线生效，
+  且 60s 兜底 tick 未触发）。
+- 文档同步：003 二版表与 R2 标 ✅；002 runner 段、005 取消段、README「How a run works」与
+  `pollIntervalMs` 注释改为「事件优先、轮询兜底」；配置注释同步。
+
+### 五、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.3**：待人工决定（红线：不改 DSH 安装目录）。
+- **测量口径修正**：`repos/deepseek-ai/deepseek-harness/releases/latest` 本次返回 404，
+  改用 `releases?per_page=3` 取首项；`state.json` 已记 `releaseCheckNote`，下次沿用列表口径。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。

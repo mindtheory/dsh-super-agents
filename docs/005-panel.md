@@ -39,7 +39,8 @@
   错过的 occurrence。暂停持久化，重启后仍生效。对应理念"agent 吵了就暂停它"。
 - **取消**：运行行上的「取消运行」或 `POST /api/dsh-super-agents/run-cancel`（`{runId}`）
   可取消 `queued` / `running` 的 Run。排队的立即落 `cancelled`；运行中的先通知会话取消，
-  由 runner 的轮询落终态（runner 是 live 状态的唯一写者）。终态 Run 返回 409。
+  再由 runner 落终态（AbortSignal 立即唤醒等待，宿主 `api-session/status` 事件或兜底 tick
+  都可能结束该 Run；runner 始终是 live 状态的唯一写者）。终态 Run 返回 409。
 - **监控接入**：外部 cron/看门狗只需 `curl /health`，`error` 条目非空即告警——对应原型
   status 四退出码的极简版（我们只有一个 HTTP 探针，够用）。
 - **数据目录**：`$DSH_HOME/dsh-super-agents/`（agents.json / schedules.json / runs.json /

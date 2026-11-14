@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -149,8 +149,57 @@ test("retry policy: exponential backoff with 60s cap", () => {
   assert.equal(retryDelay(2, 0), 2000); // invalid base falls back
 });
 
+test("idle watcher: host running-state event settles a wait as idle", async () => {
+  const w = makeIdleWatcher({ timeoutMs: 1000 });
+  const p = w.wait("s-1", new AbortController().signal);
+  w.onStatus("s-1", false);
+  assert.equal(await p, "idle");
+  assert.equal(w.waiterCount(), 0); // registry cleaned, no listener leak
+});
+
+test("idle watcher: running=true and unrelated sessions never settle a wait", async () => {
+  const w = makeIdleWatcher({ timeoutMs: 30 });
+  const p = w.wait("s-1", new AbortController().signal);
+  w.onStatus("s-1", true); // still running: not a settlement
+  w.onStatus("s-2", false); // another session's event: not ours
+  assert.equal(await p, "poll"); // only the fallback tick settles it
+  assert.equal(w.waiterCount(), 0);
+});
+
+test("idle watcher: an abort settles as aborted and drops the waiter", async () => {
+  const w = makeIdleWatcher({ timeoutMs: 1000 });
+  const c = new AbortController();
+  const p = w.wait("s-1", c.signal);
+  c.abort();
+  assert.equal(await p, "aborted");
+  assert.equal(w.waiterCount(), 0);
+  w.onStatus("s-1", false); // late event after the abort must not throw
+});
+
+test("idle watcher: a missing session or a late event is harmless", async () => {
+  const w = makeIdleWatcher({ timeoutMs: 10 });
+  assert.equal(await w.wait("", new AbortController().signal), "poll");
+  assert.equal(await w.wait("s-1", new AbortController().signal), "poll");
+  w.onStatus("s-1", false); // no waiter left: must not throw
+  assert.equal(w.waiterCount(), 0);
+});
+
 function fakeCtx(sessionController) {
-  return { get: () => sessionController };
+  // hosts from 0.2.2 emit 'api-session/status'; the fake carries the same
+  // subscribe/emit pair so a test can settle a run from an event alone.
+  const handlers = new Map();
+  return {
+    get: () => sessionController,
+    on(name, fn) {
+      const set = handlers.get(name) || new Set();
+      set.add(fn);
+      handlers.set(name, set);
+      return () => set.delete(fn);
+    },
+    emit(name, ...args) {
+      for (const fn of handlers.get(name) || []) fn(...args);
+    },
+  };
 }
 
 function makeTestRunner(dir, sc, overrides) {
@@ -158,7 +207,8 @@ function makeTestRunner(dir, sc, overrides) {
   const agent = { id: "a-1", name: "T", systemRole: "r", model: "", cwd: dir, learn: false, enabled: true };
   ledger.saveAgents([agent]);
   const state = { emit() {}, subscribe() { return () => {}; } };
-  const runner = makeRunner(fakeCtx(sc), {
+  const ctx = fakeCtx(sc);
+  const runner = makeRunner(ctx, {
     maxConcurrent: 1,
     runTimeoutMs: 5000,
     pollIntervalMs: 10,
@@ -166,7 +216,7 @@ function makeTestRunner(dir, sc, overrides) {
     retryBaseDelayMs: 50,
     ...(overrides || {}),
   }, ledger, state, makeHealth());
-  return { ledger, agent, runner };
+  return { ledger, agent, runner, ctx };
 }
 
 async function waitForStatus(ledger, runId, wanted, timeoutMs = 3000) {
@@ -384,4 +434,25 @@ test("say: an unknown delivery failure propagates instead of retrying blind", as
   assert.equal(calls, 1); // never a second send after an unknown outcome
   assert.equal(isSteerUnavailable(new Error("socket hang up")), false);
   assert.equal(isSteerUnavailable({ code: "session/steer-unavailable" }), true);
+});
+
+test("runner: settles on the host running-state event, not on a poll tick", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let listCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-event" }),
+    prompt: async () => ({}),
+    // the list never reports idle: only the host event can settle this run
+    list: async () => { listCalls += 1; return { items: [{ sessionId: "s-event", running: true }] }; },
+    cancel: () => {},
+  };
+  const { ledger, agent, runner, ctx } = makeTestRunner(dir, sc, { runTimeoutMs: 3000, pollIntervalMs: 60000 });
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  await waitForStatus(ledger, run.id, ["running"]);
+  await new Promise((r) => setTimeout(r, 20));
+  ctx.emit("api-session/status", "s-event", false);
+  const row = await waitForStatus(ledger, run.id, ["done", "done_no_artifact"]);
+  assert.ok(["done", "done_no_artifact"].includes(row.status), `unexpected ${row.status}`);
+  assert.equal(listCalls, 0); // 60s fallback never fired: the event settled it
 });

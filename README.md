@@ -62,7 +62,7 @@ Override in your profile's own `cordis.patch.yml` (it layers after bundle patche
         allowLanState: true    # let non-loopback GUI clients use the panel API
         retryMaxAttempts: 2    # total attempts per run on transient errors (1 = no retry)
         retryBaseDelayMs: 2000 # backoff base; attempt 2 waits base, 3 waits 2x, ... cap 60s
-        pollIntervalMs: 5000   # session liveness poll cadence
+        pollIntervalMs: 5000   # fallback liveness poll; host status events settle runs first
 ```
 
 Transient failures (HTTP 429/5xx, rate limit, timeouts, `ECONNRESET` / `socket hang up`)
@@ -112,7 +112,9 @@ sa_run_result     → collect any run's artifact anytime
 
 1. `sa_run` persists a run row and enqueues it (concurrency-capped queue).
 2. The runner creates a host session (`sessionController.create`), selects the agent's model, and prompts it with: persona + playbook + task + **artifact contract** (write the full deliverable to `<cwd>/.sa-results/<runId>.md`, first line = one-sentence verdict).
-3. The runner polls session liveness until idle (or timeout → cancelled).
+3. The runner settles the run on the host's `api-session/status` event (agent
+   stopped running); `pollIntervalMs` is only the fallback tick if a host emits
+   none (or an event is lost), and the per-run timeout still ends as `timeout`.
    A queued or running run can be cancelled on demand from the panel row or
    `POST /api/dsh-super-agents/run-cancel` with `{runId}` — queued rows settle
    immediately, running rows get a session cancel and settle as `cancelled`.

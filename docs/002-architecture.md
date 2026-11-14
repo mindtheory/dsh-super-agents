@@ -137,7 +137,9 @@ cron 匹配用 `zonedParts(date, tz)`——`Intl.DateTimeFormat` 按 IANA 时区
 
 **runner**：内存并发队列（`maxConcurrent`，默认 2）。执行序：`makeRun` 先落盘（queued）→
 出队时建会话（`sc.create({cwd})`）→ 选模型（`provider/model` 切分）→ `sc.prompt(...)` 投任务
-→ 轮询 `sc.list()` 的 `running` 标志直到会话停止 → 读产物文件判定 `done / done_no_artifact` →
+→ 等会话停止：先订阅宿主事件 `api-session/status(sessionId, running)`（`makeIdleWatcher`；
+0.2.2 起 Session Remote owner 会 emit），`pollIntervalMs` 只作兜底 tick 重读 `sc.list()` 的
+`running` 标志 → 读产物文件判定 `done / done_no_artifact` →
 超时则 `sc.cancel` + `timeout`。产物路径必须在 run 的 cwd 内（`.sa-results/<runId>.md`）——
 worker 会话的沙箱只允许写自己 cwd，这是踩过坑后写死的契约。
 

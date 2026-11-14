@@ -108,7 +108,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | SQLite + 生成列工作集 | ⏸ 简化（原子 JSON） | 同上 |
 | Source 插件协议 | ⏸ 预留最小接口（TriggerSource 思路） | 当前只有两条触发路 |
 | worker preset 工具裁剪 | ⏸ 计划（R4） | 宿主 preset 服务可用后接入 |
-| 事件驱动完成（agent/status 订阅） | ⏸ 计划（R2） | 当前轮询 5s 可用但延迟高 |
+| 事件驱动完成（agent/status 订阅） | ✅ 采纳（`makeIdleWatcher` 订阅 `api-session/status`；`pollIntervalMs` 降为兜底 tick） | 宿主 0.2.2 的 Session Remote owner 会 emit；丢事件/旧宿主仍由轮询兜住，run 不会被吊死 |
 | 瞬时错误自动续跑 | ✅ 采纳（`retryMaxAttempts`/`retryBaseDelayMs`，同 Run 行重放） | 上游 0.2.2 把模型请求重试做成可配置；失败重放是持久化事实 |
 | 取消运行中的子代理 | ✅ 采纳（`/run-cancel` + 内存 in-flight 表；LobeHub #22496） | queued 立即落终态；running 先通知会话再由 runner 落 `cancelled`，保持单一写者 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
@@ -118,8 +118,10 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 - **R1（本次）**：文档系列落地；index.js 内部按 storage/domain/runner/scheduler/health/tools/routes
   分区重排；新增 `key()` 幂等 id 并接入调度触发；新增 health 模块与 `/api/.../health`；
   启动清扫区分 queued/running；测试补齐（key 幂等、health 单一写者、queued 重放）。
-- **R2**：完成判定从轮询 `sc.list()` 改为订阅宿主事件（若 sessionController 暴露 status 事件）；
-  瞬时错误续跑已落地（见一.9，同 Run 行 + 指数退避 + 持久化 attempts）。
+- **R2** ✅：完成判定改为订阅宿主事件。`dsh-api-session-controller` 在 cordis 上下文 emit
+  `api-session/status(sessionId, running)`（运行状态变化）与 `api-session/added|removed`；
+  runner 用 `makeIdleWatcher` 收事件，`pollIntervalMs` 仅作兜底（丢事件、旧宿主、Remote owner
+  重启），取消经 `AbortSignal` 立即结算。瞬时错误续跑已于 R2 早期落地（同 Run 行 + 指数退避 + 持久化 attempts）。
 - **R3**：ledger 端口化（同名方法集），提供 SQLite 实现（node:sqlite），JSON 实现保留为默认。
 - **R4**：run 会话接入工具裁剪 preset（宿主 `permissionPresets`/preset 服务）。
 - **R5**：TriggerSource 接口（webhook / 文件监听等），复用 runner 与幂等 id。

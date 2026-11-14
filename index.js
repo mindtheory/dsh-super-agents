@@ -31,7 +31,8 @@ const Config = z.object({
   tickSeconds: z.number().default(30),
   allowLanState: z.boolean().default(true),
   // transient-failure retry (upstream dsh 0.2.2 made model retries configurable):
-  // max attempts per run (first try included), exponential backoff base, poll cadence.
+  // max attempts per run (first try included), exponential backoff base, and the
+  // fallback liveness poll cadence (host `api-session/status` events settle first).
   retryMaxAttempts: z.number().default(2),
   retryBaseDelayMs: z.number().default(2000),
   pollIntervalMs: z.number().default(5000),
@@ -345,6 +346,73 @@ function retryDelay(attempt, baseDelayMs) {
 }
 
 // ---------------------------------------------------------------------------
+// settlement: host running-state events first, poll as the fallback (R2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wait for "this session is no longer running".
+ *
+ * The Session Remote owner emits `api-session/status(sessionId, running)` on the
+ * cordis context whenever an Agent changes running state, so a run can settle
+ * on that event instead of on the next poll tick. The timer is a deliberate
+ * fallback: a lost event (Remote owner replaced, or an older host that emits
+ * nothing) must never wedge a run, so `poll` asks the caller to re-read the
+ * list exactly as before.
+ *
+ * `wait(sessionId, signal)` resolves once with `'idle' | 'aborted' | 'poll'`.
+ */
+function makeIdleWatcher(opts) {
+  const timeoutMs = Math.max(10, Math.min(60000, Number(opts && opts.timeoutMs) || 5000));
+  const waiters = new Map(); // sessionId -> Set<wake>
+
+  function notify(sessionId) {
+    const set = waiters.get(sessionId);
+    if (!set) return;
+    for (const wake of [...set]) {
+      try { wake(); } catch { /* a waiter must never break the emitter */ }
+    }
+  }
+
+  function onStatus(sessionId, running) {
+    if (!sessionId || running) return;
+    notify(String(sessionId));
+  }
+
+  function wait(sessionId, signal) {
+    const id = sessionId ? String(sessionId) : "";
+    if (!id) return Promise.resolve("poll");
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer = null;
+      const wake = () => finish("idle");
+      const onAbort = () => finish("aborted");
+      let set = waiters.get(id);
+      if (!set) { set = new Set(); waiters.set(id, set); }
+      set.add(wake);
+      function finish(why) {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        try { if (signal) signal.removeEventListener("abort", onAbort); } catch { /* older runtime */ }
+        const cur = waiters.get(id);
+        if (cur) {
+          cur.delete(wake);
+          if (cur.size === 0) waiters.delete(id);
+        }
+        resolve(why);
+      }
+      timer = setTimeout(() => finish("poll"), timeoutMs);
+      if (signal) {
+        if (signal.aborted) { finish("aborted"); return; }
+        try { signal.addEventListener("abort", onAbort, { once: true }); } catch { /* older runtime */ }
+      }
+    });
+  }
+
+  return { onStatus, wait, waiterCount: () => waiters.size };
+}
+
+// ---------------------------------------------------------------------------
 // runner: sessionController-backed agent runs with a small concurrency queue
 // ---------------------------------------------------------------------------
 
@@ -360,6 +428,16 @@ function makeRunner(ctx, config, ledger, state, health) {
   const retryMaxAttempts = Math.max(1, Math.min(5, Number(config.retryMaxAttempts) || 2));
   const retryBaseDelayMs = Math.max(50, Math.min(60000, Number(config.retryBaseDelayMs) || 2000));
   const pollIntervalMs = Math.max(10, Math.min(60000, Number(config.pollIntervalMs) || 5000));
+  // Completion: the host's running-state event settles a run the moment its
+  // Agent stops; the poll interval becomes the fallback tick (see R2).
+  const idleWatcher = makeIdleWatcher({ timeoutMs: pollIntervalMs });
+  let statusEvents = false;
+  try {
+    if (ctx && typeof ctx.on === "function") {
+      ctx.on("api-session/status", (sessionId, running) => idleWatcher.onStatus(sessionId, running));
+      statusEvents = true;
+    }
+  } catch { statusEvents = false; }
   health.claim("runner", "runner");
   health.claim("sessionController", "runner");
 
@@ -617,13 +695,20 @@ function makeRunner(ctx, config, ledger, state, health) {
       throw wrapped;
     }
 
-    // poll session liveness until it stops running (same signal the GUI list uses)
+    // wait until the session stops running: the host's running-state event
+    // settles it first (R2); a fallback tick re-reads the same signal the GUI
+    // list uses, and a cancelled run aborts the wait immediately.
     const startedAt = Date.now();
     const limit = config.runTimeoutMs || 1800000;
     let settled = false;
     while (Date.now() - startedAt < limit) {
-      await new Promise((r) => setTimeout(r, pollIntervalMs));
-      if (flight.cancelled) break;
+      const why = await idleWatcher.wait(sessionId, controller.signal);
+      if (why === "aborted") break;
+      if (why === "idle") {
+        settled = true;
+        log(run.id, `idle via host event after ${Date.now() - startedAt}ms`);
+        break;
+      }
       let running = true;
       try {
         const list = await sc.list({}, new AbortController().signal);
@@ -631,7 +716,13 @@ function makeRunner(ctx, config, ledger, state, health) {
         running = row ? row.running : false;
       } catch { /* transient read error: keep waiting */ }
       if (flight.cancelled) break;
-      if (!running) { settled = true; break; }
+      if (!running) {
+        settled = true;
+        log(run.id, statusEvents
+          ? `idle via poll fallback after ${Date.now() - startedAt}ms`
+          : `idle via poll after ${Date.now() - startedAt}ms (host emits no status events)`);
+        break;
+      }
     }
     clearTimeout(timer);
 
@@ -1414,7 +1505,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, sayMode, sayRequest, isSteerUnavailable, deliverSay };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};

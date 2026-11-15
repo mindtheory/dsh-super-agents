@@ -111,6 +111,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | 事件驱动完成（agent/status 订阅） | ✅ 采纳（`makeIdleWatcher` 订阅 `api-session/status`；`pollIntervalMs` 降为兜底 tick） | 宿主 0.2.2 的 Session Remote owner 会 emit；丢事件/旧宿主仍由轮询兜住，run 不会被吊死 |
 | 瞬时错误自动续跑 | ✅ 采纳（`retryMaxAttempts`/`retryBaseDelayMs`，同 Run 行重放） | 上游 0.2.2 把模型请求重试做成可配置；失败重放是持久化事实 |
 | 取消运行中的子代理 | ✅ 采纳（`/run-cancel` + 内存 in-flight 表；LobeHub #22496） | queued 立即落终态；running 先通知会话再由 runner 落 `cancelled`，保持单一写者 |
+| 被拒派工必须落痕（LobeHub #23033「close a goal whose planning dispatch was refused」） | ✅ 采纳（调度行 `skippedCount`/`lastSkipReason` + `scheduleDispatch` 健康条目；一次性 `at` 被拒即消费并留痕） | 目标 agent 停用时旧实现只推进 occurrence 标记，调度看起来"健康"实则永远不派工；cron 只告警不自动停用——恢复 agent 不该逼人重建调度 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
 
 ## 三、重构路线（按基准对齐的顺序）
@@ -132,7 +133,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 
 | 测试 | 覆盖 |
 | --- | --- |
-| `test/unit.test.js` | 纯函数：cron 解析/匹配、IANA 时区、`key()` 幂等、playbook 合并去重、提示词组装、判定表、瞬时错误重试（fake sessionController：成功续跑/重试耗尽/确定性失败/服务缺失） |
+| `test/unit.test.js` | 纯函数：cron 解析/匹配、IANA 时区、`key()` 幂等、playbook 合并去重、提示词组装、判定表、瞬时错误重试（fake sessionController：成功续跑/重试耗尽/确定性失败/服务缺失）、调度拒绝留痕（停用 agent 只记 skip 不派工 / 重启用后清零并派工 / 一次性 at 被拒即消费） |
 | `test/smoke.test.mjs` | 假 ctx 装配全插件：工具注册数、路由注册、调度 tick 触发、健康板 |
 | （R1 新增） | queued 重放/running 清扫、health 单一写者、文档存在性 |
 

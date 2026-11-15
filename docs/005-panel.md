@@ -30,6 +30,7 @@
 | `runner` | runner | 无连续执行失败 | 连续 3 次 Run failed |
 | `sessionController` | runner 启动检查 | 宿主端口可用 | 端口缺失（Run 会全部失败） |
 | `pause` | 暂停开关 | 未暂停 | 暂停中显示为 warn（提醒调度不会触发） |
+| `scheduleDispatch` | 调度器 | 没有被拒的派工 | 只到 warn：有定时任务因目标 agent 停用/缺失被跳过（列出前 3 个 id + 原因）；恢复 agent 后自动清零 |
 
 `GET /api/dsh-super-agents/health` 返回全部条目 + 暂停态 + 队列水位；面板与外部监控共用。
 

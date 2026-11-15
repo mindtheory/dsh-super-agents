@@ -792,6 +792,7 @@ function makeScheduler(config, ledger, runner, state, health, pause) {
   let tickFailures = 0;
   health.claim("scheduler", "scheduler");
   health.claim("pause", "scheduler");
+  health.claim("scheduleDispatch", "scheduler");
 
   function dueSchedules(now) {
     const out = [];
@@ -824,13 +825,30 @@ function makeScheduler(config, ledger, runner, state, health, pause) {
   function fire(s, occ) {
     const rows = ledger.schedules();
     const row = rows.find((x) => x.id === s.id);
-    if (!row) return;
+    if (!row) return false;
     if (row.kind === "at") row.firedAt = new Date().toISOString();
     if (row.kind === "cron") row.lastFiredMinute = occ;
     if (row.kind === "every") row.lastFiredAt = new Date().toISOString();
-    ledger.saveSchedules(rows);
     const agent = ledger.agents().find((a) => a.id === row.agentId);
-    if (!agent || agent.enabled === false) return;
+    // A refused dispatch must not pass for a healthy fire: otherwise an every/cron
+    // schedule pointed at a missing or switched-off agent keeps advancing its
+    // occurrence markers forever with zero signal (it "looks fired"). Record the
+    // refusal on the row instead of swallowing it, so `sa_schedule list` and the
+    // `scheduleDispatch` health entry show the schedule as skipping.
+    const refusal = !agent
+      ? `agent ${row.agentId} 不存在`
+      : (agent.enabled === false ? `agent ${row.agentId} 已停用` : "");
+    if (refusal) {
+      row.skippedCount = (Math.max(0, Number(row.skippedCount)) || 0) + 1;
+      row.lastSkipAt = new Date().toISOString();
+      row.lastSkipReason = refusal.slice(0, 140);
+      ledger.saveSchedules(rows);
+      state.emit();
+      return false;
+    }
+    row.skippedCount = 0;
+    row.lastSkipReason = "";
+    ledger.saveSchedules(rows);
     const run = runner.makeRun(agent, {
       id: `r-${key("run", row.id, occ)}`, // deterministic: replay-safe (docs/001)
       kind: "scheduled",
@@ -841,6 +859,22 @@ function makeScheduler(config, ledger, runner, state, health, pause) {
     });
     if (run) runner.enqueue(run);
     state.emit();
+    return true;
+  }
+
+  // Surface refused dispatches as one aggregated warning. A one-shot `at` row
+  // that was refused is already consumed (firedAt set), so it is history on the
+  // row and deliberately left out of the ongoing warning.
+  function reportDispatchHealth() {
+    const skipping = ledger.schedules().filter((s) => s.enabled && s.kind !== "at" && Number(s.skippedCount) > 0);
+    if (skipping.length === 0) {
+      health.set("scheduleDispatch", "ok", "");
+      return;
+    }
+    const head = skipping.slice(0, 3)
+      .map((s) => `${s.id}${s.title ? `(${s.title})` : ""}: ${s.lastSkipReason || "被跳过"}`)
+      .join("; ");
+    health.set("scheduleDispatch", "warn", `${skipping.length} 个定时任务因目标 agent 不可用被跳过，恢复该 agent 后自动续跑：${head}${skipping.length > 3 ? " …" : ""}`);
   }
 
   function tick() {
@@ -849,6 +883,7 @@ function makeScheduler(config, ledger, runner, state, health, pause) {
       if (pause.on()) return; // pause stops triggering; missed occurrences are not replayed
       const now = new Date();
       for (const { s, occ } of dueSchedules(now)) fire(s, occ);
+      reportDispatchHealth();
       if (tickFailures > 0) tickFailures = 0;
       health.set("scheduler", "ok", "");
     } catch (err) {
@@ -1505,7 +1540,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, sayMode, sayRequest, isSteerUnavailable, deliverSay };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};

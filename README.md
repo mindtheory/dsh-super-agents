@@ -83,7 +83,7 @@ missing `sessionController`, `4xx`) fail immediately with an `errorCode`
 | `sa_say` | Follow-up message into a run's session (`steer` while it runs, `queue` after it ends) |
 | `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` / `delete` |
 | `sa_learn` | Append lessons manually, or distill from a finished run |
-| `sa_health` | Health board (`scheduler` / `runner` / `sessionController` / `pause`) + global schedule pause/resume |
+| `sa_health` | Health board (`scheduler` / `runner` / `sessionController` / `pause` / `scheduleDispatch`) + global schedule pause/resume |
 
 `sa_say` steers a **running** run: the message is injected before its next step
 (`mode: "steer"`), so the operator can correct course without cancelling it or waiting

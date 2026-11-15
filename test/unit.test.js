@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -456,3 +456,93 @@ test("runner: settles on the host running-state event, not on a poll tick", asyn
   assert.ok(["done", "done_no_artifact"].includes(row.status), `unexpected ${row.status}`);
   assert.equal(listCalls, 0); // 60s fallback never fired: the event settled it
 });
+
+function makeTestScheduler(schedules, agents) {
+  const rows = schedules.map((s) => ({ ...s }));
+  const dispatched = [];
+  const ledger = {
+    schedules: () => rows,
+    saveSchedules: (next) => {
+      const snapshot = [...next]; // next may be `rows` itself: copy before clearing
+      rows.length = 0;
+      rows.push(...snapshot);
+    },
+    agents: () => agents,
+  };
+  const runner = {
+    makeRun: (agent, opts) => ({ id: opts.id, agentId: agent.id, kind: opts.kind }),
+    enqueue: (run) => dispatched.push(run),
+  };
+  const health = makeHealth();
+  const state = { emit() {} };
+  const pause = { on: () => false };
+  const scheduler = makeScheduler({ tickSeconds: 30 }, ledger, runner, state, health, pause);
+  return { scheduler, rows, dispatched, health };
+}
+
+function everyRow(extra) {
+  return {
+    id: "s-every",
+    agentId: "a-1",
+    agentName: "T",
+    title: "",
+    prompt: "p",
+    kind: "every",
+    everySeconds: 60,
+    // created two minutes ago: the next occurrence is already due
+    createdAt: new Date(Date.now() - 120000).toISOString(),
+    lastFiredAt: "",
+    firedAt: "",
+    enabled: true,
+    ...(extra || {}),
+  };
+}
+
+test("scheduler: a refused dispatch is recorded on the row, not silently skipped", () => {
+  const agent = { id: "a-1", name: "T", enabled: false };
+  const { scheduler, rows, dispatched, health } = makeTestScheduler([everyRow()], [agent]);
+  scheduler.tick();
+  assert.equal(dispatched.length, 0); // disabled target: nothing dispatched
+  assert.equal(rows[0].skippedCount, 1);
+  assert.match(rows[0].lastSkipReason, /已停用/);
+  assert.ok(rows[0].lastSkipAt);
+  const entry = health.list().find((e) => e.name === "scheduleDispatch");
+  assert.equal(entry.level, "warn");
+  assert.match(entry.note, /s-every/);
+});
+
+test("scheduler: re-enabling the agent dispatches and clears the skip record", () => {
+  const agent = { id: "a-1", name: "T", enabled: true };
+  const { scheduler, rows, dispatched, health } = makeTestScheduler(
+    [everyRow({ skippedCount: 3, lastSkipReason: "agent a-1 已停用" })],
+    [agent],
+  );
+  scheduler.tick();
+  assert.equal(dispatched.length, 1);
+  assert.equal(rows[0].skippedCount, 0);
+  assert.equal(rows[0].lastSkipReason, "");
+  const entry = health.list().find((e) => e.name === "scheduleDispatch");
+  assert.equal(entry.level, "ok");
+});
+
+test("scheduler: a refused one-shot is consumed and stays out of the ongoing warning", () => {
+  const agent = { id: "a-1", name: "T", enabled: false };
+  const row = {
+    id: "s-at",
+    agentId: "a-1",
+    agentName: "T",
+    prompt: "p",
+    kind: "at",
+    at: new Date(Date.now() - 60000).toISOString(),
+    firedAt: "",
+    enabled: true,
+  };
+  const { scheduler, rows, dispatched, health } = makeTestScheduler([row], [agent]);
+  scheduler.tick();
+  assert.equal(dispatched.length, 0);
+  assert.ok(rows[0].firedAt); // consumed: must never resurrect after a later re-enable
+  assert.match(rows[0].lastSkipReason, /已停用/);
+  const entry = health.list().find((e) => e.name === "scheduleDispatch");
+  assert.equal(entry.level, "ok"); // history on the row, not an ongoing skip
+});
+

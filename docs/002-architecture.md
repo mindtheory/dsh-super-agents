@@ -135,6 +135,12 @@ cron 匹配用 `zonedParts(date, tz)`——`Intl.DateTimeFormat` 按 IANA 时区
 （分钟/时/日/月/周），**DST 自动正确**；`tz` 为空退回主机本地。去重键是"时区内的分钟"
 （`minuteKey`），同一分钟多次 tick 只触发一次。错过的 occurrence **不补发**（001 被拒概念）。
 
+**派工被拒不等于已触发**：目标 agent 被删/停用时，该 occurrence 是"被拒"而不是"静默跳过"。
+行上记 `skippedCount` / `lastSkipAt` / `lastSkipReason`（`sa_schedule list` 直接可见），
+tick 末尾由 `reportDispatchHealth()` 汇总成 `scheduleDispatch` 健康条目（`warn`）；
+恢复 agent 后下一次成功派工把这三个字段清零，无需重建调度。一次性 `at` 被拒后仍标记
+`firedAt`（已消费，不在后来重启用时复活），只留痕、不进入持续告警——它的拒绝是终态。
+
 **runner**：内存并发队列（`maxConcurrent`，默认 2）。执行序：`makeRun` 先落盘（queued）→
 出队时建会话（`sc.create({cwd})`）→ 选模型（`provider/model` 切分）→ `sc.prompt(...)` 投任务
 → 等会话停止：先订阅宿主事件 `api-session/status(sessionId, running)`（`makeIdleWatcher`；
@@ -150,7 +156,8 @@ worker 会话的沙箱只允许写自己 cwd，这是踩过坑后写死的契约
 **启动清扫**：宿主重启后，`running` 的 Run 标 `interrupted`（会话没了，重放不安全）；
 `queued` 的 Run 重新入队（从没开始过，重放安全）。面板显示真相而非永恒的"执行中"。
 
-**健康条目**：`scheduler`（tick 异常）、`runner`（连续执行失败）、`sessionController`（服务缺失）。
+**健康条目**：`scheduler`（tick 异常）、`runner`（连续执行失败）、`sessionController`（服务缺失）、
+`scheduleDispatch`（有定时任务因目标 agent 不可用而被跳过）。
 单一写者：每个条目只有一个部件写；面板顶部只显示 `error` 级。
 
 ### 与 DSH 宿主的集成面

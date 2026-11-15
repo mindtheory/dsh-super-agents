@@ -279,3 +279,79 @@ rc.3 已于上次记录（会话导入插件 + Windows 应用内更新修复）�
 - **测量口径修正**：`repos/deepseek-ai/deepseek-harness/releases/latest` 本次返回 404，
   改用 `releases?per_page=3` 取首项；`state.json` 已记 `releaseCheckNote`，下次沿用列表口径。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+
+---
+
+## 2026-11-15（每日守望）
+
+| 检查项 | 实测结果 |
+| --- | --- |
+| 工作目录 / 仓库 HEAD | `/home/canetwork/dsh/dsh-super-agents` · 基线 `21ace8e`（本次功能提交前） |
+| dsh 版本 | `0.2.1-rc.2`（`dsh --version` 与 `<dsh>/package.json` 一致，本机未升级，红线） |
+| 上游 release | **无新版本**，仍 `dsh-v0.2.2-rc.3`（2026-11-13T07:56:55Z），`releases?per_page=3` 列表首项口径 |
+| npm dist-tags | `latest=0.2.2-rc.1`、`next=0.2.2-rc.3`、`alpha=0.2.2-alpha.3`，与基线一致（registry HTTP 口径） |
+| 官方包源码 mtime | 9 个关注包 + 5 个 resolvedTracked 共 13 项仍全为 `2026-10-21T02:12Z` 一批，无变更 |
+| 上游原型 repo | 最新 commit 仍 `8c32a9dc5d72`（2026-10-31），无变化 |
+| lobehub/lobehub | 新 head `69e7229cf817`（2026-11-15T17:40Z），基线 `1b9d3c6ac646`；中间 29 个提交 |
+| Web 检索 | 三组检索仍只命中原型 repo、Windows 适配 fork、第三方实现（oxmumu3 / aowind / RickT34 / @baymaxhit）与 rc.2 解析文，无增量能力信息 |
+| 单元测试 | `34/34 pass`（/tmp 副本 `node --test test/unit.test.js`） |
+| 冒烟测试 | `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully` |
+
+### 一、上游评估（无动作）
+
+rc.3 已两次记录，本次复查无新 release、npm dist-tags 未变、官方包源码 mtime 未变、
+原型 repo 无提交。升级到 0.2.2-rc.3 仍待人工（红线：不改安装目录）。
+
+### 二、LobeHub 29 个提交评估（1 项可移植）
+
+- `3318b7cbcf` `🐛 fix(goal): close a goal whose planning dispatch was refused its topic (#23033)`
+  → **可移植**：被拒的派工必须收口留痕，不能"看起来还开着"。已落地，见下节。
+- `564a4b9605` `🐛 fix(agent-runtime): stop gracefully on consecutive unresolvable tool names (#23024)`
+  → 宿主 `agent-runtime` 的工具调用环（连续解析不到工具名就优雅停）。本插件不持有该环，
+  run 是"建会话 + 投 prompt + 等停止"，复刻只会造成第二份判定。不移植。
+- `99a34fb1a5` `✨ feat(channel): expose the failure type and device on public Channel jobs`
+  → 本插件 run 行已有 `error` + `errorCode`（`ERR_RUN_TRANSIENT`/`ERR_RUN_TIMEOUT`/`ERR_RUN_PROMPT`/
+  `ERR_RUN_SESSION_CONTROLLER`/`ERR_RUN_AGENT_MISSING`），无新增信息。
+- MCP 四连 `a8b501bf87` / `641341230f`（SSRF-safe fetch）/ `45d3034f3b` / `30c616e01f`、
+  `7fe12d7067` 企业微信 bot 长连接、`e00695bd1f` Antigravity 本地 agent、`d731a5f860` 粘贴图片：
+  宿主 connector / 平台通道 / 异构 agent，非插件层，且涉及网络暴露与凭据（安全红线只记录不移植）。
+- `55a4ff8494`（实时显示 steer）、`4f1c632724`（上下文裁剪跨轮保留）、`0163ffb6d7`（按旁白切分
+  workflow）、`3e56ad1001`（移除 SWR 持久层）与其余 12 个 `style`/UI 提交：宿主或前端表现层，
+  steer 本插件已在投递侧结算（`deliverSay` + 回退 queue），无增量。
+- `69e7229cf8`（contact 表）等数据库/订阅页改动：云端服务端能力，不移植。
+
+拒绝"为对齐而加"的判断沿用 001 被拒概念：29 个提交里只有 #23033 描述的是本插件**已有对象**
+（调度 → 派工）的语义漏洞，其余都不是本插件持有的关注方向。
+
+### 三、本次实现：调度被拒留痕（`4e8605c`）
+
+**问题（真漏洞，不是对齐）**：`makeScheduler.fire()` 旧逻辑先推进 occurrence 标记
+（`lastFiredMinute` / `lastFiredAt` / `firedAt`），再检查 `agent` 是否存在/启用，不满足就 `return`。
+结果：指向已停用 agent 的 cron/every 调度会**无限期每秒推进标记、永远不派工、且没有任何信号**——
+面板上它看起来"到点就触发"，实际上一次都没派。`sa_schedule list` 里也完全看不出区别。
+
+**修法**（对齐 #23033 的"被拒要收口"，不改调度语义）：
+
+- 行上新增 `skippedCount` / `lastSkipAt` / `lastSkipReason`（`agent <id> 不存在` / `已停用`），
+  `sa_schedule list` 直接返回整行，无需新字段协议。
+- `reportDispatchHealth()` 在 tick 末尾汇总成新健康条目 `scheduleDispatch`（`warn`，
+  列出前 3 个 id + 原因，超出省略）；无跳过时置 `ok`。单一写者仍是 scheduler（`health.claim`）。
+- 成功派工把三项清零——**恢复 agent 后自动续跑，不逼用户重建调度**（这是与"直接 auto-disable"
+  的分歧点：停用通常是临时的，自动停用会让恢复时凭空少任务）。
+- 一次性 `at` 被拒：仍标 `firedAt`（已消费，重启用时不会突然补跑），只留痕、**不进持续告警**，
+  因为它的拒绝是终态而非"一直在跳"。
+- 保留 `skippedCount` 在行内的另一个好处：cron 若长期被跳过，`sa_runs` 里没有 run 行，
+  但调度行的 `lastSkipAt` 能证明"tick 在跑、只是派不出去"。
+
+**测试 +3（34 全绿）**：停用 agent 只记 skip 不派工且健康条目为 warn；重新启用后派工一次、
+三项清零、健康条目回 ok；一次性 at 被拒即消费（`firedAt` 非空）且不进入持续告警。
+（`makeScheduler` 加入 `__internals` 供测试，纯测试出口，无运行时消费者。）
+
+**文档同步**：002 调度段新增"派工被拒不等于已触发"与健康条目清单；003 采纳表新增一行
+（含"不自动停用"的理由）；005 健康表新增 `scheduleDispatch` 行；README `sa_health` 条目列表同步。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.3**：待人工决定（红线：不改 DSH 安装目录）。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- 本次累计改动 145 行（index.js 43 / test 92 / docs 10），在 300 行红线内。

@@ -355,3 +355,89 @@ rc.3 已两次记录，本次复查无新 release、npm dist-tags 未变、官�
 - **是否升级到 0.2.2-rc.3**：待人工决定（红线：不改 DSH 安装目录）。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - 本次累计改动 145 行（index.js 43 / test 92 / docs 10），在 300 行红线内。
+
+---
+
+## 2026-11-16（每日守望）
+
+| 检查项 | 基线（2026-11-15） | 本次实测（2026-11-16） | 判定 |
+| --- | --- | --- | --- |
+| 仓库 HEAD | `6a20dc5` | `199ad49`（本次功能提交前为 `6a20dc5`） | 有本仓库提交 |
+| dsh 版本 | `0.2.1-rc.2` | `dsh --version` 与 `<dsh>/package.json` 均为 `0.2.1-rc.2` | 无变化 |
+| 上游 release | `dsh-v0.2.2-rc.3`（2026-11-13T07:56:55Z） | `releases?per_page=3` 列表首项仍 `dsh-v0.2.2-rc.3` | 无新版本 |
+| npm dist-tags | `latest=0.2.2-rc.1` / `next=0.2.2-rc.3` / `alpha=0.2.2-alpha.3` | registry HTTP 口径同上，逐项一致 | 未变 |
+| 官方包源码 mtime | 13 项均为 `2026-10-21T02:12Z` 一批 | 13 项逐个比对，全部相同（pruned `find`） | 未变 |
+| 上游原型 repo | `8c32a9dc5d72`（2026-10-31） | 最新 commit 仍 `8c32a9dc5d72` | 无变化 |
+| lobehub/lobehub | `69e7229cf817`（2026-11-15T17:40Z） | 新 head `a1af6ec231`（2026-11-16T17:56Z），中间 **60** 个提交 | 有新提交 |
+| Web 检索 | 原型 repo / 第三方实现 / rc.2 解析文 | 同批来源，无新增能力信息 | 无增量 |
+| 单元测试 | `34/34 pass` | `37/37 pass`（/tmp 副本） | 全绿 |
+| 冒烟测试 | `SMOKE OK: 8 tools, 8 routes, …` | 同上 | 全绿 |
+
+五项信号里四项无变化，唯一变化是 LobeHub 的 60 个提交；60 个里只有一项补到本插件**已有对象**的洞。
+
+### 一、上游评估（无动作）
+
+rc.3 第三次记录，本次无新 release、dist-tags 未变、官方包源码 mtime 未变、原型 repo 无提交。
+升级到 0.2.2-rc.3 仍待人工（红线：不改 DSH 安装目录）。
+
+### 二、LobeHub 60 个提交评估（1 项可移植）
+
+命中项（"永久拒绝不该无限挂起"家族，与 #23033 同源）：
+
+- `1160d07ffc` `🐛 fix(topic): stop re-dispatching topics whose summary model rejected user settings (#23114)`
+  → 上游对"永久被拒"的处理是**停止重派并收口**，不是每轮再撞一次。照到本插件的 Run 侧，
+  发现 2026-11-15 那次修（调度行 `skippedCount`）**没有覆盖同类残留**：`requeuePersisted()`
+  对"agent 已删/已停用"的 `queued` 行直接 `continue`，既不入队也不落终态。
+
+逐项不移植（判据仍是"补本插件已有对象的语义漏洞"，不是"上游有就搬"）：
+
+- `e0724291bf` 长命令 park 而非轮询 → 宿主 `agent-runtime` 的工具调用环，本插件不持有。
+- `993eaea31f` 预期条件别报 500 → 本插件路由早已按 400/403/404/405/409 分类（逐个核对
+  `registerRoutes`），无缺口，属"已有能力"。
+- `a580105b47` 投递失败重试 → 已有 `isTransientError` + `retryDelay` 指数退避重放同一行，无增量。
+- `82ef2fd658` 等离线设备而非直接失败 → 已在调度侧实现为"跳过留痕 + 恢复后自动续跑"（`4e8605c`）。
+- `88263122a3` 空抽取结果回退 → 反思蒸馏空产物 = 不追加 playbook，本就没有失败路径。
+- `1a49740448` / `a940c74c4a` / `9c3aea4d06`（goal marks、验收轮次、评审收件箱）→ 本插件不持有
+  goal / 验收对象，引入即新造概念（001 被拒概念）。
+- `e5312145e6`、`c68faea0ce`、`a7527870b9`（OAuth 多账号 / MCP 绑设备 / 入站 webhook）→ 宿主
+  connector 与凭据、网络暴露（安全红线，只记录不实现）。
+- `512559fbb7` 钉钉、`f9bcf152f0` QQ、`1247174af2` 企业微信重启保消息、`d8ef85bd6f` 频道公开
+  → 平台通道层，本插件没有通道。
+- `2b62c18c8f` / `ac0c3613ee`（step 0 inline）、`60b7dda33f`（feature gate 并发）→ 宿主前沿。
+- 其余（艺术画板表、contact 表、chat-input 图片卡、侧边栏/头像/样式、i18n、模型卡片、
+  CLI `lh acceptance delete`）→ UI 或云端服务端能力，不移植。
+
+### 三、本次实现：孤儿 `queued` Run 收口（`199ad49`）
+
+**问题（真漏洞）**：宿主停机期间 agent 被删或停用，重启后 `requeuePersisted()` 看到
+`row.status === "queued"` 而 agent 查不到就 `continue` —— 该行**既不重新入队，也不落终态**。
+启动清扫只跑一次，之后没有任何再入队的触发点，于是这行永远停在 `queued`：
+面板显示"排队中 +1"，`sa_runs` 里看着还活着，实际永远不会有下一次派工。
+这也让 `docs/001` 的"`queued` 会被重新入队"成了半句真话。
+
+**修法**（只收口落终态，不改重放语义）：
+
+- `settleOrphan(row, code, why)`：`status: failed` + `errorCode` + `endedAt` + 可读 `error`，
+  并写 run 日志（`not requeued: …`），与 runner 其它落终态路径同一写者。
+- agent 已删除 → `ERR_RUN_AGENT_MISSING`；agent 已停用 → **新代码** `ERR_RUN_AGENT_DISABLED`。
+- 停用为什么按"拒绝"而不是"无限等"：`sa_run` 本来就拒绝停用 agent；而排队行没有
+  "重新启用 → 自动再入队"的触发点，等着就等价于永远等。行上 `taskText` 保留，
+  重新启用后再派一次即可，任务不丢（错误文案里直接写了这句话）。
+- `requeuePersisted()` 返回收口的孤儿数（纯返回值，供测试与将来面板计数用，无新协议）。
+
+**测试 +3（37 全绿）**：agent 被删 → `failed` + `ERR_RUN_AGENT_MISSING` + `taskText` 保留 + 队列为空；
+agent 被停用 → `failed` + `ERR_RUN_AGENT_DISABLED`；对照组——agent 健在时仍照常重放并跑完
+（证明没有把正常重放一起收掉，且这两类都不会真的派工：测试里的 `prompt` 一被调用就抛错）。
+
+**文档同步**：001 判定表补"重放的例外"段；002 启动清扫段补例外与理由；
+003 第 9 节 `errorCode` 清单补 `ERR_RUN_AGENT_DISABLED`，采纳表新增"孤儿 `queued` Run 必须收口"行；
+README 同步错误码清单与启动清扫例外说明。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.3**：待人工决定（红线：不改 DSH 安装目录）。
+- **未修（记录待人工）**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在去重）时
+  仍 `return true` 且不给信号。触发条件是"标记已推进但行已存在"，正常路径下不可达（标记先推进），
+  只在人工编辑 ledger 或极端崩溃重放时出现；改动要动幂等语义，超出"小修"范围，本次不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- 本次累计改动 103 行（index.js 32 / test 54 / docs 17），在 300 行红线内。

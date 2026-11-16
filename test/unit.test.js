@@ -302,6 +302,60 @@ test("runner: missing sessionController fails immediately with a clear code", as
   assert.equal(row.attempts, 1);
 });
 
+test("startup sweep: a queued run whose agent was deleted is settled, not left queued", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    prompt: async () => { throw new Error("must not dispatch an orphan"); },
+    list: async () => ({ items: [{ sessionId: "s-1", running: false }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "orphan work" }); // persisted as queued
+  assert.equal(ledger.runs().find((r) => r.id === run.id).status, "queued");
+  ledger.saveAgents([]); // the agent was deleted while the host was down
+  assert.equal(runner.requeuePersisted(), 1);
+  const row = ledger.runs().find((r) => r.id === run.id);
+  assert.equal(row.status, "failed");
+  assert.equal(row.errorCode, "ERR_RUN_AGENT_MISSING");
+  assert.ok(row.endedAt);
+  assert.equal(row.taskText, "orphan work"); // the task is not lost
+  assert.equal(runner.queueSize(), 0);
+});
+
+test("startup sweep: a queued run for a disabled agent is settled with its own code", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    prompt: async () => { throw new Error("must not dispatch for a disabled agent"); },
+    list: async () => ({ items: [{ sessionId: "s-1", running: false }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "x" });
+  ledger.saveAgents([{ ...agent, enabled: false }]);
+  assert.equal(runner.requeuePersisted(), 1);
+  const row = ledger.runs().find((r) => r.id === run.id);
+  assert.equal(row.status, "failed");
+  assert.equal(row.errorCode, "ERR_RUN_AGENT_DISABLED");
+});
+
+test("startup sweep: a queued run with a live agent still replays", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const sc = {
+    create: async () => ({ sessionId: "s-1" }),
+    prompt: async () => ({}),
+    list: async () => ({ items: [{ sessionId: "s-1", running: false }] }),
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc);
+  const run = runner.makeRun(agent, { taskText: "replay me" }); // never enqueued: simulates a died host
+  assert.equal(runner.requeuePersisted(), 0);
+  assert.equal(runner.queueSize() + runner.activeCount(), 1);
+  const row = await waitForStatus(ledger, run.id, ["done", "done_no_artifact", "failed", "timeout"]);
+  assert.equal(row.status, "done_no_artifact");
+});
+
 test("runner: cancel a queued run settles it without dispatching", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
   let promptCalls = 0;

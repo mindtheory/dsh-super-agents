@@ -54,6 +54,12 @@ Run 的 `status` 是事实，不是意图。判定表从上往下读，第一行
 `running` 的 Run 只能标 `interrupted`——它的会话随旧进程一起没了，重放可能造成外部副作用。
 `cancelled` 是终态：启动清扫只重放 `queued`，取消过的 Run 不会被重跑。
 
+**重放的例外（Agent 在停机期间被删/停用）**：这样的 `queued` 行永远开不了跑，而启动清扫只跑一次、
+没有第二个再入队时机——留着 `queued` 就是"看起来还活着、其实永远不会动"。因此清扫时把它落成
+`failed` 并带代码：agent 已删除 → `ERR_RUN_AGENT_MISSING`；agent 已停用 → `ERR_RUN_AGENT_DISABLED`
+（停用按"拒绝"处理而不是"无限等"，`sa_run` 本来也拒绝停用 agent）。行上的 `taskText` 保留，
+重新启用后再派一次即可，任务不丢。这是"被拒的派工必须收口"在 Run 侧的同一规则。
+
 ## 幂等 id
 
 所有 id 由输入派生：`key(...values) = sha256(JSON.stringify(values)).slice(0,16)`。

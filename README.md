@@ -69,8 +69,14 @@ Transient failures (HTTP 429/5xx, rate limit, timeouts, `ECONNRESET` / `socket h
 are retried on the **same run row** with exponential backoff, so `attempts` stays visible
 and a host restart during backoff cannot exceed the cap. Deterministic failures (bad agent,
 missing `sessionController`, `4xx`) fail immediately with an `errorCode`
-(`ERR_RUN_SESSION_CONTROLLER` / `ERR_RUN_AGENT_MISSING` / `ERR_RUN_PROMPT` /
-`ERR_RUN_TRANSIENT` / `ERR_RUN_TIMEOUT`).
+(`ERR_RUN_SESSION_CONTROLLER` / `ERR_RUN_AGENT_MISSING` / `ERR_RUN_AGENT_DISABLED` /
+`ERR_RUN_PROMPT` / `ERR_RUN_TRANSIENT` / `ERR_RUN_TIMEOUT`).
+
+The startup sweep replays `queued` rows, except when their agent was deleted or switched
+off while the host was down: those are settled as `failed` with
+`ERR_RUN_AGENT_MISSING` / `ERR_RUN_AGENT_DISABLED` instead of sitting in `queued`
+forever. The row keeps its `taskText`, so dispatching again after re-enabling loses
+nothing.
 
 ## Tools
 

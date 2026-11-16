@@ -512,16 +512,40 @@ function makeRunner(ctx, config, ledger, state, health) {
     return run;
   }
 
+  // A queued row whose agent was deleted or switched off while the host was
+  // down can never start, and nothing re-enqueues it later (this sweep runs
+  // once, at boot). Leaving it `queued` is a run that looks alive and never
+  // fires — the same "a refused dispatch must be settled, not left open" hole
+  // the scheduler fix closed for schedules. Settle it with a code instead of
+  // skipping it silently; the row keeps `taskText`, so re-enabling the agent
+  // and dispatching again loses nothing.
+  function settleOrphan(row, errorCode, why) {
+    patchRun(row.id, { status: "failed", errorCode, endedAt: new Date().toISOString(), error: why });
+    log(row.id, `not requeued: ${why}`);
+  }
+
   function requeuePersisted() {
     // startup replay: queued rows never started, so re-enqueuing is safe.
+    let orphans = 0;
     for (const row of ledger.runs()) {
-      if (row.status === "queued") {
-        const agent = ledger.agents().find((a) => a.id === row.agentId);
-        if (!agent) continue;
-        queue.push({ ...row, onFinish: null });
+      if (row.status !== "queued") continue;
+      const agent = ledger.agents().find((a) => a.id === row.agentId);
+      if (!agent) {
+        settleOrphan(row, "ERR_RUN_AGENT_MISSING", `agent ${row.agentId} 不存在，replay 放弃`);
+        orphans += 1;
+        continue;
       }
+      if (agent.enabled === false) {
+        // disabled is treated as a refusal rather than "wait forever": sa_run
+        // already refuses it, and a row parked here has no re-enable trigger.
+        settleOrphan(row, "ERR_RUN_AGENT_DISABLED", `agent ${row.agentId} 已停用，replay 放弃；重新启用后请重新派活`);
+        orphans += 1;
+        continue;
+      }
+      queue.push({ ...row, onFinish: null });
     }
     if (queue.length) void pump();
+    return orphans;
   }
 
   function enqueue(run) {

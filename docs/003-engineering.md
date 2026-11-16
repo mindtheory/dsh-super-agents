@@ -89,8 +89,8 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 即首试 + 1 次重试）。确定性错误（agent 不存在、宿主服务缺失、4xx）立即失败，不浪费重试。
 重放复用同一 Run id 与产物路径，因此重启后启动清扫看到 `queued` 行仍会接着跑，且
 `attempts` 已落盘、不会因重启突破上限。失败行统一带 `errorCode`
-（`ERR_RUN_SESSION_CONTROLLER` / `ERR_RUN_AGENT_MISSING` / `ERR_RUN_PROMPT` /
-`ERR_RUN_TRANSIENT` / `ERR_RUN_TIMEOUT`），与上游 0.2.2"工具失败提供更明确错误类型与代码"同向。
+（`ERR_RUN_SESSION_CONTROLLER` / `ERR_RUN_AGENT_MISSING` / `ERR_RUN_AGENT_DISABLED` /
+`ERR_RUN_PROMPT` / `ERR_RUN_TRANSIENT` / `ERR_RUN_TIMEOUT`），与上游 0.2.2"工具失败提供更明确错误类型与代码"同向。
 **通用教训：重试只应重放"同一份工作"，且尝试次数必须是持久化事实而不是内存计数。**
 
 ## 二、对原型的采纳与裁剪
@@ -112,6 +112,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | 瞬时错误自动续跑 | ✅ 采纳（`retryMaxAttempts`/`retryBaseDelayMs`，同 Run 行重放） | 上游 0.2.2 把模型请求重试做成可配置；失败重放是持久化事实 |
 | 取消运行中的子代理 | ✅ 采纳（`/run-cancel` + 内存 in-flight 表；LobeHub #22496） | queued 立即落终态；running 先通知会话再由 runner 落 `cancelled`，保持单一写者 |
 | 被拒派工必须落痕（LobeHub #23033「close a goal whose planning dispatch was refused」） | ✅ 采纳（调度行 `skippedCount`/`lastSkipReason` + `scheduleDispatch` 健康条目；一次性 `at` 被拒即消费并留痕） | 目标 agent 停用时旧实现只推进 occurrence 标记，调度看起来"健康"实则永远不派工；cron 只告警不自动停用——恢复 agent 不该逼人重建调度 |
+| 孤儿 `queued` Run 必须收口（同 #23033 家族，LobeHub #23114「stop re-dispatching a permanently rejected topic」佐证"永久拒绝不该无限挂起"） | ✅ 采纳（启动清扫把 agent 已删/已停用的 `queued` 行落 `failed` + `ERR_RUN_AGENT_MISSING`/`ERR_RUN_AGENT_DISABLED`） | 旧实现在 `requeuePersisted` 里 `continue` 掉这类行：它们既不入队也不落终态，永远停在 `queued`，面板显示"排队中"、实际没有第二次派工时机 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
 
 ## 三、重构路线（按基准对齐的顺序）

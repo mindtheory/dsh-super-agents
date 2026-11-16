@@ -154,7 +154,10 @@ worker 会话的沙箱只允许写自己 cwd，这是踩过坑后写死的契约
 提示词注入 playbook 尾部（超 2400 字符取尾部）。`learn: false` 全链路关闭。
 
 **启动清扫**：宿主重启后，`running` 的 Run 标 `interrupted`（会话没了，重放不安全）；
-`queued` 的 Run 重新入队（从没开始过，重放安全）。面板显示真相而非永恒的"执行中"。
+`queued` 的 Run 重新入队（从没开始过，重放安全）——**除非它的 agent 已被删除或停用**：
+这种行没有第二次入队时机，留在 `queued` 就是永恒的"排队中"，所以直接落 `failed` 并带
+`ERR_RUN_AGENT_MISSING` / `ERR_RUN_AGENT_DISABLED`（`taskText` 保留，重新启用后再派）。
+面板显示真相而非永恒的"执行中"或"排队中"。
 
 **健康条目**：`scheduler`（tick 异常）、`runner`（连续执行失败）、`sessionController`（服务缺失）、
 `scheduleDispatch`（有定时任务因目标 agent 不可用而被跳过）。

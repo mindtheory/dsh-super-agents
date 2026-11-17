@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-16T13:03:00-05:00",
+  "checkedAt": "2026-11-17T13:03:19-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
-    "head": "199ad49",
+    "head": "2475f8d",
     "version": "0.1.0",
-    "headNote": "本次守望的功能提交（settle orphaned queued runs）；承载本基线的 chore 提交紧随其后，故 head 在提交时点上是 199ad49。"
+    "headNote": "本次守望的功能提交（sa_runs 过滤器补齐 interrupted/cancelled）；承载本基线的 chore 提交紧随其后，故 head 在提交时点上是 2475f8d。"
   },
   "dsh": {
     "version": "0.2.1-rc.2",
@@ -17,20 +17,21 @@
       "repo": "deepseek-ai/deepseek-harness",
       "npmPackage": "@deepseek-ai/dsh",
       "npmPackageNote": "2026-11-12 口径修正：`npm view dsh version` 返回 1.0.1 是 2016 年的同名无关包（infusion/node-dsh），不能作为 DSH 版本信号；必须查 scoped 包 @deepseek-ai/dsh。属测量口径修正，不是上游变更。",
-      "latestReleaseTag": "dsh-v0.2.2-rc.3",
-      "latestReleaseAt": "2026-11-13T07:56:55Z",
-      "releaseChanged": false,
-      "releaseCheckedAt": "2026-11-16T13:02:10-05:00",
-      "releaseCheckNote": "2026-11-14：`releases/latest` 对 deepseek-harness 返回 404（GitHub 该端点在本仓库上不可用），改用 `releases?per_page=3` 取列表首项判定，仍为 rc.3；下次沿用列表口径，别再只看 latest 端点。 2026-11-16 复查：`releases?per_page=3` 列表首项仍 dsh-v0.2.2-rc.3（2026-11-13T07:56:55Z），列表口径沿用。",
+      "latestReleaseTag": "dsh-v0.2.2-rc.4",
+      "latestReleaseAt": "2026-11-17T17:53:41Z",
+      "releaseChanged": true,
+      "releaseCheckedAt": "2026-11-17T13:03:19-05:00",
+      "releaseCheckNote": "2026-11-17 首次抓到新 release：`releases?per_page=3` 列表首项 dsh-v0.2.2-rc.4（2026-11-17T17:53:41Z），较基线 rc.3 前进一版。列表口径沿用（该仓库 `releases/latest` 返回 404 不可用）。",
       "npmDistTagLatest": "0.2.2-rc.1",
       "upgradeAvailable": true,
       "headlineChanges": [
-        "实验性「DeepSeek 会话导入」插件：把 DeepSeek App/网页版历史会话导入工作区并继续对话（rc.3）",
-        "修复 Windows 桌面版应用内更新失败后无法自动重开（rc.3）",
+        "rc.4：改进模型请求收到异常（unexpected）响应时的表现（宿主 LLM 层）",
+        "rc.4：修复桌面版 LiveShare 无法创建分享",
+        "（rc.3，已于 2026-11-13 记录）实验性「DeepSeek 会话导入」插件；Windows 应用内更新失败后无法自动重开",
         "（rc.2，已于 2026-11-11 记录）SubAgent 具名多层协作 / AgentTeam 按会话开启 / 可配置重试 / 工具错误类型"
       ],
-      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.3。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。rc.3 两项均为宿主层插件/桌面更新修复，无可移植到本插件的运行时能力。2026-11-15 复查无新 release。2026-11-16 复查同：列表首项仍 rc.3、npm dist-tags latest=0.2.2-rc.1/next=0.2.2-rc.3 未变、13 个关注包源码 mtime 未变、原型 repo 无新提交。",
-      "npmDistTagNext": "0.2.2-rc.3",
+      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.4。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。rc.4 两项均为宿主层：模型异常响应处理在 LLM 请求环、LiveShare 在桌面壳，本插件不持有这两个对象，无可移植运行时能力。2026-11-17 复查：release 有新条目（rc.4）、npm next 跟到 0.2.2-rc.4；本机 13 个关注包源码 mtime 未变（本机仍是 0.2.1-rc.2 安装）、原型 repo 无新提交。",
+      "npmDistTagNext": "0.2.2-rc.4",
       "npmQueryMethodNote": "2026-11-13：本机 `npm view` 因 ~/.npm 缓存含 root 属主文件报 EACCES，改用 registry HTTP 直接读 dist-tags（https://registry.npmjs.org/@deepseek-ai%2Fdsh）：latest=0.2.2-rc.1（2026-11-04），next=0.2.2-rc.3。"
     }
   },
@@ -107,7 +108,8 @@
         "latestFile": "dsh-experimental-agent-team/README.i18n.yaml"
       }
     },
-    "checkedAt": "2026-11-16T13:02:20-05:00"
+    "checkedAt": "2026-11-17T13:03:19-05:00",
+    "sampleNote": "2026-11-17 复核 13 个关注包（tracked 6 + resolvedTracked 5 + dsh-agent-loop/dsh-workflow/dsh-llm-retry/dsh-persona 抽样），全部源码 mtime 仍为 2026-10-21T02:12Z 批（pruned 采集），无个别包更新。本机未升级，故包内容不随上游 release 变化。"
   },
   "prototypeRepo": {
     "repo": "deepseek-ai/dsh-superagent-prototype",
@@ -117,29 +119,30 @@
     "pushedAt": "2026-11-03T09:29:14Z",
     "changed": false,
     "note": "上游原型 repo 自基线前即无新提交；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。",
-    "checkedAt": "2026-11-16T13:02:20-05:00"
+    "checkedAt": "2026-11-17T13:03:19-05:00"
   },
   "lobehub": {
     "repo": "lobehub/lobehub",
     "api": "https://api.github.com/repos/lobehub/lobehub/commits?since=<prevHead date>&per_page=100",
-    "sha": "a1af6ec231d1af04717c7b6041bceda24b8a8959",
-    "commitDate": "2026-11-16T17:56:53Z",
-    "message": "🔧 chore(alint): flag self-proving and subsumed test cases (#22335)",
-    "previousSha": "69e7229cf817c927f9fd716e29dc3a5719b7a2af",
+    "sha": "077e32942ef7d2bb90378225ff9780602a6fbe78",
+    "commitDate": "2026-11-17T17:56:03Z",
+    "message": "✨ feat(coding): say how each topic PR was linked; own-branch match, manual link and remove (#23248)",
+    "previousSha": "a1af6ec231d1af04717c7b6041bceda24b8a8959",
     "fetchFailed": false,
-    "note": "2026-11-16 评估 69e7229cf8 之后的 60 个提交。唯一命中可移植项是极小的\"永久拒绝不该无限挂起\"家族：1160d07ffc「stop re-dispatching a permanently rejected topic」+ #23033 的 Run 侧残留——启动清扫对 agent 已删/已停用 的 queued 行 `continue` 掉，既不重放也不收口 → 已落地（199ad49）。逐项不移植理由：e0724291bf（长命令 park 而非轮询）属宿主 agent-runtime 的工具调用环；993eaea31f（预期条件别报 500）本插件路由已按 403/404/405/409/400 分类，无缺口；a580105b47（投递失败重试）已有瞬时错误重试+退避（isTransientError/retryDelay）；82ef2fd658（等离线设备而非直接失败）已在调度侧实现为\"跳过留痕+恢复续跑\"（4e8605c）；88263122a3（空抽取结果回退）对应反思蒸馏空产物即为 no-op，无洞；1a49740448/a940c74c4a/9c3aea4d06（goal marks、验收轮次）本插件不持有 goal/验收对象；e5312145e6、c68faea0ce、a7527870b9 等 MCP/connector/webhook 属宿主 connector 与凭据安全红线；512559fbb7 钉钉、f9bcf152f0 QQ、1247174af2 企业微信、e18e7142da/d8ef85bd6f 频道权限属平台通道层；2b62c18c8f/ac0c3613ee（step 0 inline）、60b7dda33f（feature gate 并发）属宿主前沿；其余（artboard/contact 表、chat-input 图片卡、侧边栏/样式、i18n、模型卡片、CLI acceptance）为 UI/服务端能力，不移植。",
-    "commitCountSinceBaseline": 60
+    "note": "2026-11-17 评估 a1af6ec231 之后 92 个提交（API 正常返回）。本轮无可移植的运行对象改动：864bba4926(#23135 fail refused async tasks / JWT 过期 / image MIME) 属\"被拒必须收口\"家族，本插件已在 4e8605c、199ad49 收口（调度 skip 留痕、孤儿 queued 收口），JWT 与 image/vnd.dwg MIME 是 LobeHub 服务端对象，本插件不持有；876f41af63(#23147 延迟消息自我重放 24 次上限) 的洞是\"无上限的自我重放\"，本插件的重放都有界且幂等（retryMaxAttempts 上限、occurrence 去重、取消前查账），无同类无界环；4ffc770792(#23186 Queue/Steer) 已于 59dbc1e 落地；4a6961585f/60cccaa69f/b110a43d3e（agent-runtime/context-engine 的性能与状态 blob）属宿主前沿；273a21e1f6 已删文档仍进上下文属宿主 context-engine；92b4cb3964（GitHub 凭据不再下发设备）涉凭据安全红线，只记录不实现；9c18f1cf80/1583dc719f/6933028268/9d1506e249（Codex/hetero 设备与告警）属宿主 connector；其余 channel/contact/bot/Team、workspace/sandbox/worktree/coding、agent-share、settings/subscription、desktop、sidebar/chat-input/style、i18n、model-bank、CLI acceptance 为平台通道、云端服务端或 UI 层，本插件无对应对象。遗留待人工（沿用 2026-11-16 记录）：scheduler.fire() 里 runner.makeRun() 返回 null（同 id 行已存在）时仍 return true 且不给信号，正常路径不可达，改动会动幂等语义，继续不动。",
+    "commitCountSinceBaseline": 92
   },
   "web": {
-    "lastQuery": "DeepSeek Harness super agent | dsh-superagent-prototype update | DeepSeek Harness 0.2.2 release super agent",
-    "lastResultNote": "2026-11-16：检索结果与基线同批（原型 repo 文档、Windows 适配 fork、第三方实现 oxmumu3/aowind/RickT34/@baymaxhit、rc.2 解析文、原型 006-deployment 文档），无新增能力信息。",
-    "checkedAt": "2026-11-16T13:02:40-05:00"
+    "lastQuery": "DeepSeek Harness super agent | dsh-superagent-prototype | DeepSeek Harness 0.2.2 release super agent",
+    "lastResultNote": "2026-11-17 检索结果仍是同一批（原型 repo 报道、Windows 适配 fork、第三方实现、rc.2 解析文、原型部署文档），无 rc.4 的新能力信息，也无新的 super agent 上游动态。",
+    "checkedAt": "2026-11-17T13:03:19-05:00"
   },
   "testBaseline": {
-    "unit": "37/37 pass",
+    "unit": "39/39 pass",
     "smoke": "SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully",
     "allGreen": true,
-    "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。"
+    "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。",
+    "checkedAt": "2026-11-17T13:03:19-05:00"
   },
   "processed": [
     {
@@ -253,6 +256,27 @@
       "title": "孤儿 queued Run 收口：启动清扫把 agent 已删/已停用 的排队行落 failed + ERR_RUN_AGENT_MISSING/ERR_RUN_AGENT_DISABLED，保留 taskText",
       "action": "implemented",
       "commit": "199ad49"
+    },
+    {
+      "date": "2026-11-17",
+      "id": "upstream-0.2.2-rc.4",
+      "title": "上游 DSH 发布 0.2.2-rc.4（模型异常响应处理；桌面 LiveShare 创建修复），npm next 跟到 rc.4",
+      "action": "评估：两项均为宿主层（LLM 请求环 / 桌面壳），无可移植对象；不升级本机安装（红线），记录待人工",
+      "commit": null
+    },
+    {
+      "date": "2026-11-17",
+      "id": "lobehub-review-92",
+      "title": "评估 LobeHub a1af6ec231 之后 92 个提交；无可移植项（\"被拒收口\"家族已在前两次落地，#23147 无界重放在本插件不存在）",
+      "action": "no-action（逐项理由记入 lobehub.note）",
+      "commit": null
+    },
+    {
+      "date": "2026-11-17",
+      "id": "sa-runs-status-filter",
+      "title": "sa_runs 状态过滤器补齐 interrupted/cancelled（README 已承诺、工具 enum 缺失→宿主判非法参数）",
+      "action": "implemented（RUN_STATUSES 单一数据源 + listRuns 共享过滤器 + 面板标签色 + 测试 2 例）",
+      "commit": "2475f8d"
     }
   ]
 }

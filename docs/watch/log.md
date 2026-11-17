@@ -441,3 +441,72 @@ README 同步错误码清单与启动清扫例外说明。
   只在人工编辑 ledger 或极端崩溃重放时出现；改动要动幂等语义，超出"小修"范围，本次不动。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - 本次累计改动 103 行（index.js 32 / test 54 / docs 17），在 300 行红线内。
+
+---
+
+## 2026-11-17 · 上游发布 0.2.2-rc.4；lobehub 92 提交无移植项；补 `sa_runs` 状态过滤器
+
+### 一、五项上游信号（基线 vs 本次实测）
+
+| 信号 | 基线（2026-11-16） | 本次实测（2026-11-17） | 判定 |
+| --- | --- | --- | --- |
+| `dsh --version` / 官方 package.json | `0.2.1-rc.2` | `0.2.1-rc.2` | 未变（本机未升级，红线） |
+| GitHub release（`releases?per_page=3` 首项） | `dsh-v0.2.2-rc.3` · 2026-11-13T07:56:55Z | **`dsh-v0.2.2-rc.4` · 2026-11-17T17:53:41Z** | **新 release** |
+| npm dist-tags（registry HTTP） | latest `0.2.2-rc.1` / next `0.2.2-rc.3` | latest `0.2.2-rc.1`（2026-11-04）/ **next `0.2.2-rc.4`**（2026-11-17T17:03:03Z） | next 跟到 rc.4 |
+| 13 个关注包源码 mtime（pruned 采集） | 2026-10-21T02:12Z 批 | 同批，逐项一致（dsh-base/dsh-schedule/dsh-agent/dsh-skill/dsh-goal/dsh-tool-goal/dsh-subagent/dsh-tool-subagent/dsh-experimental-agent-team/dsh-agent-loop/dsh-workflow/dsh-llm-retry/dsh-persona） | 未变 |
+| 原型 repo `deepseek-ai/dsh-superagent-prototype` | `8c32a9dc5d72` · 2026-10-31 | `8c32a9dc5d72` · 2026-10-31 | 未变 |
+
+`dsh-v0.2.2-rc.4` 内容两项，均在宿主侧：改进模型请求收到异常（unexpected）响应时的表现（LLM 请求环）、
+修复桌面版 LiveShare 无法创建分享（桌面壳）。本插件不持有这两个对象 → **无可移植运行时能力**；
+升级仍需人工决定（红线：不改 DSH 安装目录）。
+
+### 二、LobeHub 92 个提交（`a1af6ec231` → `077e32942e`，API 正常）
+
+**逐项判定要点**：
+
+- `864bba4926` #23135（异步任务被拒要落失败 + 退款；JWT 过期；image/vnd.dwg 不当时图发）
+  → "被拒必须收口"家族，本插件已在 `4e8605c`（调度 skip 留痕）、`199ad49`（孤儿 queued 收口）落地；
+  JWT 与 image MIME 是 LobeHub 服务端对象，本插件没有。
+- `876f41af63` #23147（延迟消息自我重放 24 次）→ 洞是"无上限的自我重放"。
+  本插件的重放全部有界且幂等：`retryMaxAttempts` 上限 + 持久化 attempts、occurrence 去重、
+  取消后排空队列前查账 → 不存在同类无界环，不移植。
+- `4ffc770792` #23186（Follow-up Queue/Steer）→ 已于 `59dbc1e` 落地（`sa_say`）。
+- `4a6961585f` / `60cccaa69f` / `b110a43d3e` / `273a21e1f6`（agent-runtime 状态 blob / context-engine）
+  → 宿主前沿，不移植。
+- `92b4cb3964`（GitHub 凭据不再下发设备）→ 凭据安全红线，只记录。
+- `9c18f1cf80` / `1583dc719f` / `6933028268` / `9d1506e249`（Codex/hetero 设备与告警）→ 宿主 connector。
+- 其余 channel/contact/bot/Team、workspace/sandbox/worktree/coding、agent-share、settings/subscription、
+  desktop、sidebar/chat-input/style、i18n、model-bank、CLI acceptance → 平台通道 / 云端服务端 / UI。
+
+**结论**：本轮无可移植项（"上游有就搬"不是准入判据）。
+
+### 三、本次实现：`sa_runs` 状态过滤器补齐（`2475f8d`）
+
+**问题（已文档化但未实现）**：`README` 的工具表写着
+`sa_runs | List runs (queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled)`，
+但工具 schema 的 `status.enum` 只有 6 个状态——漏了 `interrupted`（启动清扫把 in-flight 行标中断）
+和 `cancelled`（人主动取消）。宿主按 schema 校验 enum：`status:"cancelled"` **不是返回空列表，
+而是判非法参数**。也就是说，最需要人看一眼的两类终态，恰好是查不到的。
+
+**修法（数据源化，不动协议）**：
+
+- `RUN_STATUSES = Object.freeze([...8 个状态])` 单一数据源，喂 `enum`、工具描述与测试。
+- `listRuns(runs, { agentId, status, limit })`：把"最新在前 + agent 过滤 + 状态过滤 + 1..100 夹取"
+  从工具内联收成一处，工具只做投影（`taskText` 截断）。
+- 面板 `client.js` 补 `.saTag.interrupted`（紫）与 `.saTag.cancelled`（灰）——原先只有 failed/timeout
+  等有配色，中断/取消落在默认灰，和"排队中"不易区分（docs/005 要求 `interrupted` 如实显示）。
+
+**测试 +2（39 全绿）**：状态枚举与"插件自己写的 8 个状态"逐项相等且无重复；`listRuns` 对
+`interrupted`/`cancelled` 两种此前查不到的状态都能命中，并验证 agent 过滤、最新在前、limit 夹取、
+未知状态返回空而不抛。
+
+**文档同步**：`docs/003` 采纳表新增"查找能力不得被自己的 schema 挡住"行（含 README 与代码不一致的原因）。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.4**：待人工决定（红线：不改 DSH 安装目录）。
+- **遗留（沿用 11-16 记录）**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时
+  仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- 本次累计改动 58 行（index.js 32 / test 32 / client.js 2 / docs 1），在 300 行红线内。
+- `git push` 首次因网络过慢（<1000 B/s）失败，放宽阈值重试后推送；两次提交均保留。

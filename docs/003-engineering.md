@@ -113,6 +113,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | 取消运行中的子代理 | ✅ 采纳（`/run-cancel` + 内存 in-flight 表；LobeHub #22496） | queued 立即落终态；running 先通知会话再由 runner 落 `cancelled`，保持单一写者 |
 | 被拒派工必须落痕（LobeHub #23033「close a goal whose planning dispatch was refused」） | ✅ 采纳（调度行 `skippedCount`/`lastSkipReason` + `scheduleDispatch` 健康条目；一次性 `at` 被拒即消费并留痕） | 目标 agent 停用时旧实现只推进 occurrence 标记，调度看起来"健康"实则永远不派工；cron 只告警不自动停用——恢复 agent 不该逼人重建调度 |
 | 孤儿 `queued` Run 必须收口（同 #23033 家族，LobeHub #23114「stop re-dispatching a permanently rejected topic」佐证"永久拒绝不该无限挂起"） | ✅ 采纳（启动清扫把 agent 已删/已停用的 `queued` 行落 `failed` + `ERR_RUN_AGENT_MISSING`/`ERR_RUN_AGENT_DISABLED`） | 旧实现在 `requeuePersisted` 里 `continue` 掉这类行：它们既不入队也不落终态，永远停在 `queued`，面板显示"排队中"、实际没有第二次派工时机 |
+| 查找能力不得被自己的 schema 挡住（同 #23033 家族：被拒/被忽略的状态要能查得到，不能静默漏报） | ✅ 采纳（`RUN_STATUSES` 单一数据源 + `listRuns` 共享过滤器；`interrupted`/`cancelled` 补入 `sa_runs` 的 enum 与描述，面板补标签色） | README 早已承诺 `sa_runs` 可过滤 `interrupted/cancelled`，工具 enum 却只有 6 个状态。enum 由宿主按 schema 校验：查取消/中断的 Run 不是"空结果"而是**非法参数**，最需要人的两类终态恰好查不到。数据源化后 enum/描述/测试同源，不会再漂 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
 
 ## 三、重构路线（按基准对齐的顺序）

@@ -146,6 +146,8 @@ window.__ModuleLoader__.load({
       ".saTag.queued{color:#777;border-color:#777}",
       ".saTag.failed,.saTag.timeout{color:#c62828;border-color:#c62828}",
       ".saTag.done_no_artifact{color:#ef6c00;border-color:#ef6c00}",
+      ".saTag.interrupted{color:#6a1b9a;border-color:#6a1b9a}",
+      ".saTag.cancelled{color:#9e9e9e;border-color:#9e9e9e}",
       ".saMono{font-family:ui-monospace,monospace;font-size:11px;opacity:.75}",
       ".saPre{white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;border:1px solid rgba(128,128,128,.25);border-radius:8px;padding:8px;font-size:12px}",
       ".saErr{color:#c62828;font-size:12px}",

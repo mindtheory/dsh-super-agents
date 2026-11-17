@@ -416,6 +416,25 @@ function makeIdleWatcher(opts) {
 // runner: sessionController-backed agent runs with a small concurrency queue
 // ---------------------------------------------------------------------------
 
+// Every status this plugin writes into runs.json, in lifecycle order. The
+// `sa_runs` filter has to be able to name all of them: `cancelled` (operator
+// cancel) and `interrupted` (boot sweep of an in-flight row) are terminal states
+// an operator looks for, and an enum that omits them turns a documented lookup
+// into an invalid argument. Kept as data so the enum, the description and the
+// tests cannot drift apart again.
+const RUN_STATUSES = Object.freeze(["queued", "running", "done", "done_no_artifact", "failed", "timeout", "interrupted", "cancelled"]);
+
+// Newest-first run listing shared by the `sa_runs` tool: one writer of the
+// filter/limit rules, so a status the plugin writes is always filterable.
+function listRuns(runs, opts) {
+  const o = opts || {};
+  let rows = runs.slice().reverse();
+  if (o.agentId) rows = rows.filter((r) => r.agentId === o.agentId);
+  if (o.status) rows = rows.filter((r) => r.status === o.status);
+  const limit = Math.max(1, Math.min(100, Number(o.limit) || 20));
+  return rows.slice(0, limit);
+}
+
 function makeRunner(ctx, config, ledger, state, health) {
   const queue = [];
   let active = 0;
@@ -1091,19 +1110,16 @@ function registerTools(ctx, config, ledger, runner, scheduler, state, health, pa
 
   ctx.tools.register(defineTool({
     name: "sa_runs",
-    description: "列出超级智能体的运行记录（状态 queued/running/done/done_no_artifact/failed/timeout），可按 agent 与状态过滤。",
+    description: "列出超级智能体的运行记录（状态 queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled），可按 agent 与状态过滤。",
     parameters: {
       agentId: { type: "string", description: "只看某 agent（可选）" },
-      status: { type: "string", enum: ["queued", "running", "done", "done_no_artifact", "failed", "timeout"], description: "按状态过滤（可选）" },
+      status: { type: "string", enum: RUN_STATUSES, description: "按状态过滤（可选）" },
       limit: { type: "integer", description: "返回条数，默认 20，最新在前" },
     },
     output: TEXT_OUTPUT,
     async execute(args) {
-      let rows = ledger.runs().slice().reverse();
-      if (args.agentId) rows = rows.filter((r) => r.agentId === args.agentId);
-      if (args.status) rows = rows.filter((r) => r.status === args.status);
-      const limit = Math.max(1, Math.min(100, args.limit || 20));
-      return json({ ok: true, runs: rows.slice(0, limit).map(({ taskText, ...r }) => ({ ...r, taskText: (taskText || "").slice(0, 120) })) });
+      const rows = listRuns(ledger.runs(), { agentId: args.agentId, status: args.status, limit: args.limit });
+      return json({ ok: true, runs: rows.map(({ taskText, ...r }) => ({ ...r, taskText: (taskText || "").slice(0, 120) })) });
     },
   }));
 
@@ -1564,7 +1580,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, listRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};

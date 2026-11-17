@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, listRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -600,3 +600,33 @@ test("scheduler: a refused one-shot is consumed and stays out of the ongoing war
   assert.equal(entry.level, "ok"); // history on the row, not an ongoing skip
 });
 
+// The `sa_runs` filter is a tool-schema enum, so a status it omits is not an
+// empty result — the host rejects the argument outright. Every terminal state
+// this plugin writes must therefore be nameable (`interrupted` from the boot
+// sweep, `cancelled` from an operator cancel); these two tests pin the list and
+// the shared filter to each other so the enum cannot silently drift again.
+test("runs: the sa_runs filter names every status the plugin writes", () => {
+  assert.ok(Object.isFrozen(RUN_STATUSES));
+  assert.deepEqual([...RUN_STATUSES].sort(), [
+    "cancelled", "done", "done_no_artifact", "failed", "interrupted", "queued", "running", "timeout",
+  ]);
+  assert.equal(new Set(RUN_STATUSES).size, RUN_STATUSES.length); // no duplicate entries
+});
+
+test("runs: listRuns filters newest-first by status and agent within a bounded limit", () => {
+  const rows = [
+    { id: "r1", agentId: "a-1", status: "queued" },
+    { id: "r2", agentId: "a-1", status: "cancelled" },
+    { id: "r3", agentId: "a-2", status: "interrupted" },
+    { id: "r4", agentId: "a-1", status: "interrupted" },
+  ];
+  // both states the old enum could not name are reachable through the filter
+  assert.deepEqual(listRuns(rows, { status: "interrupted" }).map((r) => r.id), ["r4", "r3"]);
+  assert.deepEqual(listRuns(rows, { status: "cancelled" }).map((r) => r.id), ["r2"]);
+  assert.deepEqual(listRuns(rows, { agentId: "a-1", status: "interrupted" }).map((r) => r.id), ["r4"]);
+  assert.deepEqual(listRuns(rows, { agentId: "a-1" }).map((r) => r.id), ["r4", "r2", "r1"]);
+  assert.deepEqual(listRuns(rows, { limit: 2 }).map((r) => r.id), ["r4", "r3"]);
+  assert.equal(listRuns(rows, { limit: 999 }).length, 4); // clamped to 100, not unbounded
+  assert.equal(listRuns(rows, {}).length, 4); // default limit keeps every row here
+  assert.deepEqual(listRuns(rows, { status: "nope" }), []); // unknown status never throws
+});

@@ -510,3 +510,82 @@ README 同步错误码清单与启动清扫例外说明。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - 本次累计改动 58 行（index.js 32 / test 32 / client.js 2 / docs 1），在 300 行红线内。
 - `git push` 首次因网络过慢（<1000 B/s）失败，放宽阈值重试后推送；两次提交均保留。
+
+## 2026-11-18 · 上游发布 0.2.2-rc.5（宿主检索路由）；lobehub 87 提交命中「硬编码上限不得静默丢活」
+
+### 一、五项上游信号（基线 vs 本次实测）
+
+| 信号 | 基线（2026-11-17） | 本次实测（2026-11-18） | 判定 |
+| --- | --- | --- | --- |
+| `dsh --version` / 官方 package.json | `0.2.1-rc.2` | `0.2.1-rc.2` | 未变（本机未升级，红线） |
+| GitHub release（`releases?per_page=3` 首项） | `dsh-v0.2.2-rc.4` · 2026-11-17T17:53:41Z | **`dsh-v0.2.2-rc.5` · 2026-11-18T12:51:39Z** | **新 release** |
+| npm dist-tags（registry HTTP） | latest `0.2.2-rc.1` / next `0.2.2-rc.4` | latest `0.2.2-rc.1`（2026-11-04）/ **next `0.2.2-rc.5`**（2026-11-18T13:17:23Z）/ alpha `0.2.2-alpha.3` | next 跟到 rc.5 |
+| 13 个关注包源码 mtime（pruned 采集） | 2026-10-21T02:12Z 批 | 同批，逐项一致（dsh-base/dsh-schedule/dsh-agent/dsh-skill/dsh-goal/dsh-tool-goal/dsh-subagent/dsh-tool-subagent/dsh-experimental-agent-team/dsh-agent-loop/dsh-workflow/dsh-llm-retry/dsh-persona，13/13 相等） | 未变 |
+| 原型 repo `deepseek-ai/dsh-superagent-prototype` | `8c32a9dc5d72` · 2026-10-31 | `8c32a9dc5d72` · 2026-10-31 | 未变 |
+| Web 检索 | 同一批原型报道/第三方实现 | 同一批（新增第三方 rc.5 解析文，无新机制） | 无新能力信息 |
+
+`dsh-v0.2.2-rc.5` 只有一项：DeepSeek 模型改用 DeepSeek 服务端搜索（不按次收费），其他模型默认走
+DeepSeek Search API。这是宿主对**模型供应商的检索路由**（LLM 请求环 + 搜索工具），本插件既不持有
+搜索工具也不发起检索请求 → **无可移植运行时能力**，也不该替宿主选供应商；升级仍需人工决定
+（红线：不改 DSH 安装目录）。本机 0.2.1-rc.2 的 13 个关注包 mtime 全等，说明包内容不随上游
+release 变化（本机未升级）。
+
+### 二、LobeHub 87 个提交（`077e32942e` → `734ebd6e12`，API 正常）
+
+**命中 1 项**：
+
+- `276ed1bb6e` #23421（drop the hard-coded 32-step cap on Channel runs）——一行删除 `maxSteps: 32`。
+  洞不是数字本身，而是**固定上限按新近度无差别裁剪在飞工作且不留痕**。本插件 `runs.json` 的
+  `rows.slice(-300)` 正是同类：`queued`/`running` 行是 runner 还要回写的活状态，`patchRun` 对
+  不存在的行是静默 no-op → 一个排队很久或跑得很久的 Run 被 300 条更新的行挤出 index 后，它
+  真的跑了（花掉模型调用、可能写了产物），但台账没有这一行、`sa_runs` 查不到、也没有
+  `failed`/`timeout` 这类终态信号。→ 本轮实现（见三）。
+
+**逐项不移植判定**：
+
+- `8b4e5e545a` #23269（Stop 追上自己的 patch）→ 本插件已收口：`pump()` 的 catch 先看
+  `flight.cancelled` 再判失败，测试「a cancel that aborts prompt settles cancelled, not failed」。
+- `af8cd4ce82` #23289（无来源时结束进度流）→ 洞是"无人会 publish 的订阅永远挂着"；本插件
+  `idleWatcher` 有轮询兜底、整段等待被 `runTimeoutMs` 封顶，没有空等待环。
+- `a7cd4fb4c5` #23338（保留工具不可用原因）→ LobeHub 工具激活器对象；本插件健康条目已带 note，
+  不可用路径（`isSteerUnavailable`、agent 停用/缺失）都返回原因。
+- `734ebd6e12` #23430（stdin 挂住 agent shell）→ 本插件没有读 stdin 的子进程（`index.js` 的
+  `spawn` 是从未使用的旧 import，无对应对象）。
+- `3bc9577537` / `10f86c673d` / `e25b0e967a` / `70e07c9b6b`（skills opt-in、GitHub 技能导入、
+  侧栏技能管理、task skill 拆分）→ 宿主 skills 层。
+- `0ac5f31c40`（connector 两态 opt-in）→ 宿主 connector。
+- `9462041c1f` / `d3118e1339`（agent 配额、`lh quota`）→ 本插件无配额对象。
+- `5bda6c2faa` / `48b847e43b`（OpenAPI 统一错误/分页/幂等、zod 响应）→ 云端 API。
+- `5145d221b5`（force-steer 展示）、`5ea57be899`/`304b9468b8`/`c026f6ca7c` 等 channel 视图 →
+  UI/平台通道。
+- `390bce997f` / `cb008285c6` / `73d9f1dce9`（session worktree 文件访问、PR 动作）→ 宿主 worktree。
+- `7c658f6bb1` / `56429c71bf`（UTF-16 BOM 判定、heap flag 文件解析）→ 宿主文件解析。
+- 余下 channel/contact/bot/Team、coding/PR、agent-share、project、settings/subscription、desktop、
+  sidebar/chat-input/style、database、i18n、model-bank、CI、测试审计 → 平台通道、云端服务端或 UI 层。
+
+**结论**：本轮唯一可移植项是"上限不得静默丢活"，已落地（`debdac3`）。
+
+### 三、本次实现：保留上限只裁已终结行（`debdac3`）
+
+**修法（不新增依赖，纯 ESM）**：
+
+- `trimRuns(rows, maxRows)` 成为纯函数：从新到旧保留最多 `maxRows` 条**已终结**行，
+  `RUN_STATUSES` 里 `queued`/`running` 之外的状态一律算已终结。
+- `LIVE_RUN_STATUSES = Object.freeze(["queued","running"])` + `RUN_HISTORY_LIMIT = 300` 单一数据源；
+  在飞行行**即便超过上限也保留**（"在飞状态"不是历史），旧顺序保持不变（`patchRun`/`sa_runs` 依赖）。
+- 上限不再硬编码：配置项 `maxRunRows`（默认 300，夹取 50..5000，避免设成 1 让索引失去意义）。
+- `makeLedger(dir, { maxRows })` 接收上限，`apply()` 传 `config.maxRunRows`。
+
+**测试 +2（41 全绿）**：`running`/`queued` 行在被 300 条更新行淹没后仍存活、最旧已终结行先被裁、
+行数为 302、顺序保持；上限可配（100）与下限夹取（1 → 50）、`trimRuns` 不改入参数组。
+
+**文档同步**：`README`（配置项 + `runs.json` 说明）、`docs/001`（「无限历史」被拒项改写为
+"只裁已终结行"）、`docs/003` 采纳表新增「硬编码上限不得静默丢活（LobeHub #23421）」行。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.5**：待人工决定（红线：不改 DSH 安装目录）。
+- **遗留（沿用 11-16 记录）**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）
+  时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- 本次累计改动 100 行（+92 −8：index.js +42/−4、test +46/−2、README +2/−1、docs/001 +1/−1、docs/003 +1），在 300 行红线内。

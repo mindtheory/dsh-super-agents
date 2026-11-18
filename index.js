@@ -28,6 +28,9 @@ const Config = z.object({
   defaultCwd: z.string().default(""),
   maxConcurrent: z.number().default(2),
   runTimeoutMs: z.number().default(1800000),
+  // how many settled run rows the index keeps (50..5000); queued/running rows
+  // are always kept, so this cap can never discard a run that is still live.
+  maxRunRows: z.number().default(300),
   tickSeconds: z.number().default(30),
   allowLanState: z.boolean().default(true),
   // transient-failure retry (upstream dsh 0.2.2 made model retries configurable):
@@ -188,19 +191,54 @@ function minuteKey(date, tz) {
 // ledger: agents / schedules / runs
 // ---------------------------------------------------------------------------
 
-function makeLedger(dir) {
+// Run-index retention (docs/001 "无限历史"): the ledger is an index, not a
+// journal, so it keeps the newest N *settled* runs. A `queued`/`running` row is
+// not history — it is live state the runner still writes to, and `patchRun`
+// silently does nothing when the row is gone. Trimming purely by recency can
+// therefore delete a run that has not reached a terminal state: it then runs
+// (and costs a model call) with no ledger row, no `sa_runs` entry and no failure
+// signal. LobeHub #23421 removed a hard-coded `maxSteps` cap for the same class
+// of bug (a fixed cap silently discarding live work); here the cap stays, but it
+// counts only settled rows and is configurable instead of hard-coded.
+const RUN_HISTORY_LIMIT = 300;
+// Only these two are "in flight"; every other status in RUN_STATUSES is terminal.
+const LIVE_RUN_STATUSES = Object.freeze(["queued", "running"]);
+
+function trimRuns(rows, maxRows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const cap = Math.max(50, Math.min(5000, Number(maxRows) || RUN_HISTORY_LIMIT));
+  if (list.length <= cap) return list;
+  const keep = new Set();
+  let settled = 0;
+  // newest -> oldest, so the cap always evicts the oldest settled rows first
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (LIVE_RUN_STATUSES.includes(list[i] && list[i].status)) {
+      keep.add(i); // never evict a live row, even past the cap
+      continue;
+    }
+    if (settled < cap) {
+      keep.add(i);
+      settled += 1;
+    }
+  }
+  if (keep.size === list.length) return list;
+  return list.filter((_, i) => keep.has(i)); // original (oldest -> newest) order
+}
+
+function makeLedger(dir, opts) {
   const files = {
     agents: path.join(dir, "agents.json"),
     schedules: path.join(dir, "schedules.json"),
     runs: path.join(dir, "runs.json"),
   };
+  const maxRunRows = opts && opts.maxRows;
   return {
     agents: () => readJson(files.agents, []),
     saveAgents: (rows) => writeJsonAtomic(files.agents, rows),
     schedules: () => readJson(files.schedules, []),
     saveSchedules: (rows) => writeJsonAtomic(files.schedules, rows),
     runs: () => readJson(files.runs, []),
-    saveRuns: (rows) => writeJsonAtomic(files.runs, rows.slice(-300)),
+    saveRuns: (rows) => writeJsonAtomic(files.runs, trimRuns(rows, maxRunRows)),
     logPath: (runId) => path.join(dir, "logs", `${runId}.log`),
     resultPath: (runId) => path.join(dir, "results", `${runId}.md`),
     playbookPath: (agentId) => path.join(dir, "playbooks", `${agentId}.md`),
@@ -1580,13 +1618,13 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, listRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};
   const dir = resolveDataDir(resolved);
   ensureDirs(dir);
-  const ledger = makeLedger(dir);
+  const ledger = makeLedger(dir, { maxRows: resolved.maxRunRows });
   const health = makeHealth();
   const pause = makePause(dir);
   // startup sweep (docs/001 run-state table): a run left mid-flight by the old

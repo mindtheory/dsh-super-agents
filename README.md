@@ -58,6 +58,7 @@ Override in your profile's own `cordis.patch.yml` (it layers after bundle patche
         defaultModel: ''       # "provider/model" fallback; empty = host default
         maxConcurrent: 2       # parallel worker cap; extra runs queue
         runTimeoutMs: 1800000  # hard per-run limit (30 min), then cancelled
+        maxRunRows: 300        # settled run rows kept in the index (50..5000); live rows always kept
         tickSeconds: 30        # scheduler tick interval (min 10)
         allowLanState: true    # let non-loopback GUI clients use the panel API
         retryMaxAttempts: 2    # total attempts per run on transient errors (1 = no retry)
@@ -134,7 +135,7 @@ Artifacts live inside the run's working directory on purpose: worker sessions ru
 $DSH_HOME/dsh-super-agents/
 ├── agents.json      # persona cards
 ├── schedules.json   # self-dispatch triggers
-├── runs.json        # run ledger (last 300)
+├── runs.json        # run index (newest 300 settled rows; live rows never trimmed)
 ├── logs/<runId>.log # per-run runner log
 ├── results/         # host-side artifact fallback
 ├── pause.json       # global schedule-pause flag (survives restarts)

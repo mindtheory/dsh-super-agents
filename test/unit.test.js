@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, listRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -100,8 +100,52 @@ test("ledger: atomic round-trip and run trimming", () => {
   assert.equal(ledger.agents()[0].name, "x");
   const many = Array.from({ length: 350 }, (_, i) => ({ id: `r-${i}` }));
   ledger.saveRuns(many);
-  assert.equal(ledger.runs().length, 300); // trimmed to last 300
+  assert.equal(ledger.runs().length, 300); // trimmed to last 300 settled rows
   assert.equal(ledger.runs()[299].id, "r-349");
+});
+
+test("ledger: the retention cap never discards a live (queued/running) row", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const ledger = makeLedger(dir);
+  // 350 rows deep in history, with a long-running run and a parked queued run
+  // created early: trimming by recency alone would evict both, and patchRun
+  // then silently drops their terminal state (no row -> no sa_runs entry).
+  const rows = Array.from({ length: 350 }, (_, i) => ({
+    id: `r-${i}`,
+    status: i === 5 ? "running" : i === 10 ? "queued" : "done",
+  }));
+  ledger.saveRuns(rows);
+  const kept = ledger.runs();
+  const ids = kept.map((r) => r.id);
+  assert.ok(ids.includes("r-5"), "running row must survive the cap");
+  assert.ok(ids.includes("r-10"), "queued row must survive the cap");
+  assert.ok(!ids.includes("r-0"), "oldest settled row is evicted first");
+  assert.ok(!ids.includes("r-49"), "settled rows are capped");
+  assert.equal(kept.length, 302); // 300 settled + 2 live
+  // oldest -> newest order is preserved (patchRun/sa_runs depend on it)
+  const nums = ids.map((id) => Number(id.slice(2)));
+  assert.deepEqual(nums, nums.slice().sort((a, b) => a - b));
+  assert.equal(ids[ids.length - 1], "r-349");
+});
+
+test("ledger: retention cap is configurable and clamped", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  const small = makeLedger(dir, { maxRows: 100 });
+  const many = Array.from({ length: 150 }, (_, i) => ({ id: `r-${i}`, status: "done" }));
+  small.saveRuns(many);
+  assert.equal(small.runs().length, 100);
+  assert.equal(small.runs()[99].id, "r-149");
+  // below the floor: 50 (a cap of 1 would make the run index useless)
+  const tiny = makeLedger(fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-")), { maxRows: 1 });
+  tiny.saveRuns(many);
+  assert.equal(tiny.runs().length, 50);
+  // pure helper: no mutation of the input array
+  const input = Array.from({ length: 120 }, (_, i) => ({ id: `r-${i}`, status: "failed" }));
+  const out = trimRuns(input, 60);
+  assert.equal(out.length, 60);
+  assert.equal(input.length, 120);
+  assert.ok(LIVE_RUN_STATUSES.every((s) => RUN_STATUSES.includes(s)));
+  assert.equal(RUN_HISTORY_LIMIT, 300);
 });
 
 test("playbook: dedupe, list-line filter, rolling cap", () => {

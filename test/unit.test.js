@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
+const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, agentDeleteImpact, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -673,4 +673,64 @@ test("runs: listRuns filters newest-first by status and agent within a bounded l
   assert.equal(listRuns(rows, { limit: 999 }).length, 4); // clamped to 100, not unbounded
   assert.equal(listRuns(rows, {}).length, 4); // default limit keeps every row here
   assert.deepEqual(listRuns(rows, { status: "nope" }), []); // unknown status never throws
+});
+
+// `sa_agent delete` removes the card, its schedules and nothing else, but it
+// used to answer `{ok:true}` only: an operator (or a model) could delete an
+// agent and never learn that N cron jobs and M runs went with it. LobeHub #22313
+// makes the delete impact-aware for exactly this reason. These two tests pin the
+// counts to the ledger the delete actually rewrites — counts only, no writes.
+test("delete impact: counts schedules and run rows by agent, ignoring other agents", () => {
+  const schedules = [
+    { id: "s1", agentId: "a-1" },
+    { id: "s2", agentId: "a-1" },
+    { id: "s3", agentId: "a-2" },
+  ];
+  const runs = [
+    { id: "r1", agentId: "a-1", status: "queued" },
+    { id: "r2", agentId: "a-1", status: "running" },
+    { id: "r3", agentId: "a-1", status: "done" },
+    { id: "r4", agentId: "a-1", status: "interrupted" },
+    { id: "r5", agentId: "a-2", status: "queued" },
+  ];
+  assert.deepEqual(agentDeleteImpact("a-1", schedules, runs), {
+    schedules: 2,
+    queuedRuns: 1,
+    runningRuns: 1,
+    endedRuns: 2, // history stays in the ledger index on purpose
+  });
+  // an id with nothing attached reports zeros rather than throwing or guessing
+  assert.deepEqual(agentDeleteImpact("a-9", schedules, runs), {
+    schedules: 0, queuedRuns: 0, runningRuns: 0, endedRuns: 0,
+  });
+  // missing ledgers (first run, empty data dir) must not break the delete
+  assert.deepEqual(agentDeleteImpact("a-1", null, undefined), {
+    schedules: 0, queuedRuns: 0, runningRuns: 0, endedRuns: 0,
+  });
+});
+
+test("delete impact: the counts match what a delete leaves behind", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-del-"));
+  const ledger = makeLedger(dir);
+  ledger.saveAgents([
+    { id: "a-1", name: "gone" },
+    { id: "a-2", name: "kept" },
+  ]);
+  ledger.saveSchedules([
+    { id: "s1", agentId: "a-1", kind: "every", everySeconds: 60, enabled: true },
+    { id: "s2", agentId: "a-2", kind: "every", everySeconds: 60, enabled: true },
+  ]);
+  ledger.saveRuns([
+    { id: "r1", agentId: "a-1", status: "queued" },
+    { id: "r2", agentId: "a-1", status: "failed" },
+  ]);
+  const impact = agentDeleteImpact("a-1", ledger.schedules(), ledger.runs());
+  ledger.saveAgents(ledger.agents().filter((a) => a.id !== "a-1"));
+  ledger.saveSchedules(ledger.schedules().filter((s) => s.agentId !== "a-1"));
+  // the reported impact is exactly the state the delete removed
+  assert.equal(impact.schedules, 1);
+  assert.equal(ledger.schedules().length, 2 - impact.schedules);
+  assert.deepEqual(ledger.agents().map((a) => a.id), ["a-2"]);
+  assert.deepEqual(ledger.runs().map((r) => r.id), ["r1", "r2"]); // history untouched
+  assert.equal(impact.queuedRuns + impact.runningRuns + impact.endedRuns, ledger.runs().length);
 });

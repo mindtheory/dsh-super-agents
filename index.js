@@ -473,6 +473,27 @@ function listRuns(runs, opts) {
   return rows.slice(0, limit);
 }
 
+// Deleting an agent card deletes more than the card: its schedules and its run
+// rows point at the id, and the delete used to drop the schedules silently. An
+// impact-aware delete reports what else goes with it (LobeHub #22313, where a
+// delete has to say how many of other people's topics it takes), so a caller
+// learns that N cron jobs died now instead of noticing later that an agent
+// stopped firing. Counts only — nothing here writes.
+function agentDeleteImpact(agentId, schedules, runs) {
+  const mine = (runs || []).filter((r) => r.agentId === agentId);
+  const queued = mine.filter((r) => r.status === "queued").length;
+  const running = mine.filter((r) => r.status === "running").length;
+  return {
+    schedules: (schedules || []).filter((s) => s.agentId === agentId).length,
+    queuedRuns: queued,
+    runningRuns: running,
+    // history: the run rows the delete leaves in the ledger index. Kept on
+    // purpose (sa_runs is the record of what the agent did), counted so the
+    // caller does not mistake "deleted" for "the runs are gone too".
+    endedRuns: mine.length - queued - running,
+  };
+}
+
 function makeRunner(ctx, config, ledger, state, health) {
   const queue = [];
   let active = 0;
@@ -1110,11 +1131,13 @@ function registerTools(ctx, config, ledger, runner, scheduler, state, health, pa
         state.emit();
         return json({ ok: true, agent: row });
       }
-      // delete
+      // delete: report the collateral (schedules + run rows keyed by this id)
+      // instead of dropping it silently.
+      const impact = agentDeleteImpact(row.id, ledger.schedules(), ledger.runs());
       ledger.saveAgents(agents.filter((a) => a.id !== row.id));
       ledger.saveSchedules(ledger.schedules().filter((s) => s.agentId !== row.id));
       state.emit();
-      return json({ ok: true, deleted: row.id });
+      return json({ ok: true, deleted: row.id, impact });
     },
   }));
 
@@ -1527,10 +1550,11 @@ function registerRoutes(ctx, config, ledger, runner, state, health, pause) {
         if ((req.method || "GET") !== "POST") return writeJson(res, 405, { error: "POST only" });
         try {
           const body = await readBody(req);
+          const impact = agentDeleteImpact(body.agentId, ledger.schedules(), ledger.runs());
           ledger.saveAgents(ledger.agents().filter((a) => a.id !== body.agentId));
           ledger.saveSchedules(ledger.schedules().filter((s) => s.agentId !== body.agentId));
           state.emit();
-          return writeJson(res, 200, { ok: true });
+          return writeJson(res, 200, { ok: true, impact });
         } catch (err) {
           return writeJson(res, 400, { error: String(err && err.message || err).slice(0, 200) });
         }
@@ -1618,7 +1642,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
+export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, agentDeleteImpact, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};

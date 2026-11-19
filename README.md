@@ -99,6 +99,11 @@ Pass `mode` explicitly to force either one. If the run ends between the status r
 the injection, the host rejects it as `session/steer-unavailable` and the message is
 queued once instead of being lost.
 
+`sa_agent delete` removes the card **and** the schedules registered for it (`/agent-delete` does the
+same), and both answer with an `impact` block — `{schedules, queuedRuns, runningRuns, endedRuns}` —
+counting what the delete takes with it. The run rows themselves stay in the ledger (they are the record
+of what the agent did, still reachable through `sa_runs`), so `endedRuns` is what remains, not what dies.
+
 A matching **skill** (`super-agents`) is registered so the host model knows when and how to use these tools.
 
 ## Typical flow

@@ -116,6 +116,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | 查找能力不得被自己的 schema 挡住（同 #23033 家族：被拒/被忽略的状态要能查得到，不能静默漏报） | ✅ 采纳（`RUN_STATUSES` 单一数据源 + `listRuns` 共享过滤器；`interrupted`/`cancelled` 补入 `sa_runs` 的 enum 与描述，面板补标签色） | README 早已承诺 `sa_runs` 可过滤 `interrupted/cancelled`，工具 enum 却只有 6 个状态。enum 由宿主按 schema 校验：查取消/中断的 Run 不是"空结果"而是**非法参数**，最需要人的两类终态恰好查不到。数据源化后 enum/描述/测试同源，不会再漂 |
 | 硬编码上限不得静默丢活（LobeHub #23421「drop the hard-coded 32-step cap on Channel runs」：固定上限把仍在推进的长任务截断且不留痕） | ✅ 采纳（`trimRuns` 只裁已终结行；`RUN_HISTORY_LIMIT` 默认 300 且由 `maxRunRows` 配置、50..5000 夹取） | 原实现 `rows.slice(-300)` 按"新近度"无差别裁剪：一个排队很久或跑得很久的 Run，可能被 300 条更新的行挤出 index，之后 `patchRun` 静默 no-op——它真的跑了（花掉模型调用、可能写了产物），但台账没有这一行、`sa_runs` 查不到、也没有 `failed`/`timeout` 这类终态信号。"无限历史"仍是拒绝的，被裁的只是历史（已终结行）；在飞行是状态而不是历史，永远保留 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
+| 破坏性删除必须回传影响面（LobeHub #22313「let agent authors delete agents carrying teammates' topics, with an impact-aware confirm」：删 agent 要告诉调用方有多少他人内容一起进回收站） | ✅ 采纳（`sa_agent delete` 与 `/agent-delete` 回传 `impact: {schedules, queuedRuns, runningRuns, endedRuns}`；纯函数 `agentDeleteImpact` 只数不写） | 删卡连带删掉该 agent 的全部调度行，旧实现只回 `{ok:true}`：调用方（人或模型）以为"只是删了张卡"，实际 N 个 cron 一起消失，之后表现为"这个 agent 再也不自己干活了"，且回头查不到是谁删的。上游的教训是*先算影响再删*，等价物就是把连带销毁的计数回传；不改成"要求二次确认"（工具调用无 UI 握手，模板会退化成永远不删） |
 
 ## 三、重构路线（按基准对齐的顺序）
 

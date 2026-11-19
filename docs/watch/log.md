@@ -589,3 +589,74 @@ release 变化（本机未升级）。
   时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - 本次累计改动 100 行（+92 −8：index.js +42/−4、test +46/−2、README +2/−1、docs/001 +1/−1、docs/003 +1），在 300 行红线内。
+
+---
+
+## 2026-11-19 · 上游无新版本，LobeHub 52 提交命中 1 项（删除影响面）
+
+### 一、五项信号（逐项对比基线）
+
+| 信号 | 本次 | 对比基线 |
+| --- | --- | --- |
+| `dsh --version` / 官方 `package.json` | `0.2.1-rc.2` | 未变 |
+| GitHub releases 首项 | `dsh-v0.2.2-rc.5` · 2026-11-18T12:51:39Z（其后 rc.4 / rc.3） | 未变（距上次发布不足一天，无新 release） |
+| npm registry dist-tags | latest **0.2.2-rc.5** / next 0.2.2-rc.5 / alpha 0.2.2-alpha.3 | **变**：latest 由 `0.2.2-rc.1` 提升到 rc.5 |
+| 13 个关注包源码 mtime | 全部仍为 2026-10-21T02:12Z 批 | 逐项相等（本机未升级） |
+| 原型 repo commit | `8c32a9dc5d72`（2026-10-31） | 未变 |
+
+npm 的 latest 变化是**发布渠道 promote**（把 11-18 就存在的 rc.5 从 next 扶正为 latest），不是新版本内容；
+rc.5 的唯一一项（DeepSeek 模型走服务端搜索、其他模型走 DeepSeek Search API）完全在宿主检索路由与
+LLM 请求环，本插件不持有搜索工具也不发起检索 → 仍无可移植对象。升级本机安装待人工（红线）。
+
+### 二、LobeHub 52 个提交（`734ebd6e12` → `f773db0a01`，API 正常）
+
+**命中 1 项**：`e8ac56b1b3` #22313（impact-aware agent delete）。它的洞不是"权限"，而是
+**破坏性删除不告诉调用方连带销毁了什么**：本插件 `sa_agent delete` 删卡时把该 agent 的全部
+调度行一起删掉，却只回 `{ok:true}` —— 调用方（人或模型）分不清"删了张空卡"和"顺手杀掉十几个
+cron"，损失之后才以"这个 agent 再也不自己干活了"的形式出现，且回头查不到成因。→ 本轮实现（见三）。
+
+**逐项不移植判定**：
+
+- `620271f40c` #23451（不再为已结束的 run 持留 steer）→ 洞是"长轮询投递持有的 lease 无人续期/归还，
+  后续投递排在它后面直到过期"。本插件 `deliverSay` 内联 `await sc.prompt`，没有投递队列/租约；
+  失败直接抛出，只有确定性 `session/steer-unavailable` 才回落一次 `queue`。
+- `069a4df8e7` #23371（把验收 run 归因到 verify trigger）→ 洞是"`execAgent` 不带 trigger 导致归因丢失"。
+  本插件 5 处 `makeRun` 全部显式带 trigger（`tool`/`panel`/`schedule`/`reflection`/`learn`），
+  `makeRun` 另有 `"manual"` 兜底。
+- `ba533d78c9` #23435（给 stale-run 扫描建索引）→ 洞是"reaper 全表扫 running 行"。本插件
+  `apply()` 的启动清扫已把 `running` 落 `interrupted`；文件台账无索引问题。
+- `3d7aa46974` #23427（上传失败要给原因、可取消、可重试）→ 本插件没有上传对象。
+- `bdea230ad8`（share 统计漏计 Workspace agent 自己的 run）→ 本插件面板只渲染 `runs.length`，无独立统计口径。
+- 工具激活族（`591a2b0617`/`a8c7521601`/`baf950d217`/`b9c4696463`/`d731e455ac`/`13a650e190`/`c0df2aef4a`）、
+  `d86a85bcea` connector → 宿主工具/凭据/连接器层。
+- skills 族（`2821ecc53b`/`4056b7eafd`/`4a23eec771`/`556bdefffa`/`35b070ac3d`）→ 宿主 skills 层。
+- `08004870b0`（topic 父子 / `lh topic stop|archive`）、`6c257ed503`（openapi documents）、
+  云端 API 与 verify/spend 归因 → 云端服务端。
+- channel 族（`0ca4435393`/`3d6932ece7`/`4300126b88`/`667d1ea96c`/`0410a4a148`/`0a6afd63a9`）、
+  `e998173235`/`5d92df4572`（project 环境/成员）、`a0aa905b45`（coding 权限模式）→ 平台通道与宿主 worktree。
+- `c5c2ee82c1`（分享到社交平台）、`7b8bc57950`/`5f679b5f33`/`69149cf919`/`835b9f3b56`/`bd7691d86a`/
+  `07cc80bdda`/`361266c489`/`3c4588690e`/`1b1acd4c66`（style / density / desktop / chat-input）→ UI 层。
+- `f773db0a01`/`fd7595a3bd`（model-bank）、`0551a5c769`/`ff9a881ba8`（i18n 与副本）、
+  `b4ece3d180`（CI revert）、database 索引后半 → 无需移植。
+
+### 三、本次实现：删除 agent 回传影响面（`c6fbea6`）
+
+- 新增纯函数 `agentDeleteImpact(agentId, schedules, runs)`（只数不写、缺参数容错）：
+  `{schedules, queuedRuns, runningRuns, endedRuns}`。`endedRuns` 是删除后**仍留在台账**的历史行数
+  （`sa_runs` 是"这个 agent 干过什么"的记录，删除不清史），单独计数以免把"删了卡"误读成"run 也没了"。
+- `sa_agent` 的 delete 分支与 `POST /agent-delete` 两条删除路径都在重写前算一次并回传 `impact`，
+  两条路径共用同一函数（口径不再各写一份）。
+- 不改删除语义：仍不要求二次确认（工具调用没有 UI 握手，做成"必须确认"会退化成永远不删），
+  只把连带销毁变成调用点可见的事实。
+
+**测试 +2（43 全绿）**：按 agent 计数且不串到别的 agent、空/缺参返回零值；计数与实际删除后的
+调度行/agent 行/run 行状态一致。smoke 仍 `SMOKE OK: 8 tools, 8 routes, ...`。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.5**：待人工决定（红线：不改 DSH 安装目录）。npm latest 已被扶正到 rc.5，
+  `npm i -g @deepseek-ai/dsh` 现在会装到 rc.5。
+- **遗留（沿用 11-16 记录）**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）
+  时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- 本次累计改动 100 行（+95 −5：index.js +28/−4、test +61/−1、README +5、docs/003 +1），在 300 行红线内。

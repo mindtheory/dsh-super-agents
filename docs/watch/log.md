@@ -660,3 +660,75 @@ cron"，损失之后才以"这个 agent 再也不自己干活了"的形式出现
   时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - 本次累计改动 100 行（+95 −5：index.js +28/−4、test +61/−1、README +5、docs/003 +1），在 300 行红线内。
+
+---
+
+## 2026-11-20 · 上游四项信号全无变化；LobeHub 63 提交，命中 #23431 的「查不到操作不猜结果」
+
+### 一、上游信号（四项全无变化）
+
+| 信号 | 本次读数 | 与 11-19 基线对比 |
+| --- | --- | --- |
+| `dsh --version` | `0.2.1-rc.2` | 未变（本机未升级） |
+| GitHub releases 首项 | `dsh-v0.2.2-rc.5`（2026-11-18T12:51:39Z） | 未变（次项 rc.4 11-17 / rc.3 11-13） |
+| npm registry dist-tags | latest **0.2.2-rc.5** / next 0.2.2-rc.5 / alpha 0.2.2-alpha.3 | 未变；rc.5 的 registry 时间戳仍 `2026-11-18T13:17:23Z` |
+| 13 个关注包源码 mtime | 全部仍为 2026-10-21T02:12Z 批 | 逐项相等（本机未升级） |
+| 原型 repo commit | `8c32a9dc5d72`（2026-10-31） | 未变 |
+
+npm 的 latest 仍是 rc.5（11-19 的 promote 动作之后没有新发布），可移植性判定沿用 11-18：
+rc.5 唯一一项（DeepSeek 模型走服务端搜索、其他模型走 DeepSeek Search API）完全在宿主检索路由与
+LLM 请求环，本插件不持有搜索工具也不发起检索 → 无可移植对象。升级本机安装待人工（红线）。
+
+Web 检索：仍是既有那批（央广/上海证券报/搜狐/阿里云/七牛报道、dataconomy 的 dsh-superagent 报道、
+知乎 0.2.2 综述、腾讯云 rc.2 解析、原型 repo 页面仍停在 8c32a9dc5d72）；本次新出现的只有 npm 三方包
+`@baymaxhit/dsh-superagent`（非官方、同名壳）与 dsh-ai.com / deepseek-code.com 社区站，无可移植机制。
+
+### 二、LobeHub 63 个提交（`f773db0a01` → `8a4ce32138`，API 正常）
+
+**命中 1 项**：`5cd61e1b9d` #23431（settle a leftover running run / fence a late completion）里的判定规则
+**「operation 找不到时不猜结果」**。它的主体（拒绝闸门、晚到完成围栏、账本按 task 行清理）在本插件都不存在
+——同 agent 可并行、没有 `running` 拒绝、每条 settle 前都重读目标行；但**同一句话命中了我们的兜底轮询**：
+`running = row ? row.running : false` 把"宿主会话列表里查不到这个会话"折成"会话空闲"，于是会话被删/被清扫
+的 Run 会凭一个可能只写了一半的产物文件被标成 `done` —— 一个没人观察到的完成，`sa_runs`、面板、自学习
+hook 都会当成事实（还会把该 Run 的反思蒸馏进 playbook）。→ 本轮实现（见三）。
+
+**逐项不移植判定（按簇）**：
+
+- `7e1562d3aa` #23444（runner 不是 Task 创建者导致 hook 查不到 Task/workspace）→ 洞是「hook 按
+  `createdByUserId` 查 Task、丢了 workspace」，本插件无 workspace/多用户作用域。
+- `35b4ff610c` #23438（agent availability：设备在线 / 托管设备阶段 / 配额 / Redis 缓存）→ 本插件无设备、
+  无配额、无 Redis，`enabled` 就是全部可用性。
+- `43dfc70aa7`（`agent_deliveries` 投递台账）→ 本插件 `runs.json` + result 文件已是投递台账。
+- channel / 联系人 / bot / 共享 Agent / 设备授权族（`49f73191c5`/`1ce7bdcefb`/`8fe49a5f9c`/`5af9a24913`/
+  `1b89933c8e`/`f77357e96f`/`43358e8005`/`4629e1cb34`/`d46a77aa0d`/`479ae3060d`/`d60e43246e`/`9d7e286485`/
+  `55fb124fda`/`8a4ce32138`/`05bc09e28b`/`50522b782c`/`816e46b93f`/`f4c0de59af`/`f69ecef284`/`fa476c3e62`）
+  → 本插件无这些对象。
+- artboard / Works / 任务页 / 知识库工具（`40060aa9e7`/`f2027f5365`/`843d626ea6`/`9463328d58`/`b3781352ca`/
+  `a26f180d08`/`19d85c3008`）→ 无对应工具与页面。
+- marketplace / skills / connectors / MCP / oidc / model-runtime 定价 / database 列（`a58ae9386e`/`2beaea5f24`/
+  `ceb8b633fc`/`370392fecd`/`22bf753695`/`9a8571764f`/`f6c01bfc39`/`585ae785c6`/`057ee36970`/`a09a54f41f`/
+  `45cd693e4c`/`dc1753fbee`/`9c1acaf43c`/`369fcc6e4b`）→ 宿主市场/技能/凭据/数据库层。
+- settings / sidebar / desktop / style / 密度 / 宿主提示词（`c47510e357`/`579099b184`/`89b7d51732`/
+  `83cbb33345`/`488273c66a`/`861773018c`/`3f09e5846c`/`9c51e3a49f`/`2cd1e71076`/`6659826c1a`/`58bae51c3e`/
+  `d8ce91cd28`/`5d4975b805`/`559ae7ce83`）→ UI / 宿主提示词组装。
+- 沙箱（`30a5e19014`/`e6bcd13682`）→ 宿主沙箱。
+
+### 三、本次实现：会话消失不猜 `done`（`eeddb7d`）
+
+- `execute()` 的兜底轮询把「查不到会话」与「会话空闲」拆成两个事实：查不到 → 立刻落
+  `interrupted` + `ERR_RUN_SESSION_LOST`，error 写明 `outcome unverified`；会话在但不 running → 才落 `done`。
+- `list()` 抛错仍是「没读到」而不是「不存在」：继续等（原逻辑不动），避免把瞬时读错误误判成中断。
+- 为什么是 `interrupted`：docs/001 里它就是「会话没了、结果不可复现」的终态；`done` 会是凭产物文件的推断，
+  而产物可能只是部分写入。没人观察到的完成比超时更有害——它会被当事实继续流转。
+- 测试 +2（45 全绿）：会话从列表消失（且已存在部分产物）→ `interrupted`/`ERR_RUN_SESSION_LOST`，不再 `done`；
+  `list` 连续抛错后恢复正常 → 正常结算，不误判。
+- 文档：README 启动清扫段补中途会话消失的情形；docs/001 判定表与规则段；docs/003 采纳表。
+
+### 四、待人工 / 备注
+
+- **是否升级到 0.2.2-rc.5**：待人工决定（红线：不改 DSH 安装目录）。
+- **遗留（沿用 11-16 记录）**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）
+  时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+- 本次累计改动 88 行（+88 −3：index.js +32/−1、test +50、README −1/+1、docs/001 +4/−1、docs/003 +1），
+  在 300 行红线内。

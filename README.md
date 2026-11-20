@@ -147,7 +147,7 @@ $DSH_HOME/dsh-super-agents/
 └── playbooks/<agentId>.md
 ```
 
-Boot sweep: `running` rows → `interrupted` (their sessions died with the old process; replaying could repeat external side effects), `queued` rows are re-enqueued (never started, replay-safe). `GET /api/dsh-super-agents/health` exposes the health board for external monitors.
+Boot sweep: `running` rows → `interrupted` (their sessions died with the old process; replaying could repeat external side effects), `queued` rows are re-enqueued (never started, replay-safe). A run whose session disappears from the host session list mid-flight is also settled `interrupted` (`ERR_RUN_SESSION_LOST`): its outcome was never observed, so it is not inferred as `done` from an artifact that may be a partial write. `GET /api/dsh-super-agents/health` exposes the health board for external monitors.
 
 ## Development
 

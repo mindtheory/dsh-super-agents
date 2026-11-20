@@ -555,6 +555,56 @@ test("runner: settles on the host running-state event, not on a poll tick", asyn
   assert.equal(listCalls, 0); // 60s fallback never fired: the event settled it
 });
 
+test("runner: a session that disappears from the host list is interrupted, not guessed done", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let listCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-lost" }),
+    prompt: async () => ({}),
+    // still running, then the row is gone (session deleted or swept)
+    list: async () => {
+      listCalls += 1;
+      const items = listCalls === 1
+        ? [{ sessionId: "s-lost", running: true }]
+        : [{ sessionId: "s-other", running: true }];
+      return { items };
+    },
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc, { runTimeoutMs: 3000, pollIntervalMs: 20 });
+  const run = runner.makeRun(agent, { taskText: "x" });
+  // a partial artifact exists: the old read turned exactly this into `done`
+  fs.mkdirSync(path.dirname(run.resultPath), { recursive: true });
+  fs.writeFileSync(run.resultPath, "partial\n");
+  runner.enqueue(run);
+  const row = await waitForStatus(ledger, run.id, ["interrupted", "done", "done_no_artifact"]);
+  assert.equal(row.status, "interrupted");
+  assert.equal(row.errorCode, "ERR_RUN_SESSION_LOST");
+  assert.match(row.error, /outcome unverified/);
+  assert.ok(row.endedAt);
+});
+
+test("runner: a failed list read is not a lost session (keeps waiting)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-test-"));
+  let listCalls = 0;
+  const sc = {
+    create: async () => ({ sessionId: "s-flaky" }),
+    prompt: async () => ({}),
+    list: async () => {
+      listCalls += 1;
+      if (listCalls <= 2) throw new Error("read timeout");
+      return { items: [{ sessionId: "s-flaky", running: false }] };
+    },
+    cancel: () => {},
+  };
+  const { ledger, agent, runner } = makeTestRunner(dir, sc, { runTimeoutMs: 3000, pollIntervalMs: 20 });
+  const run = runner.makeRun(agent, { taskText: "x" });
+  runner.enqueue(run);
+  const row = await waitForStatus(ledger, run.id, ["done", "done_no_artifact", "interrupted"]);
+  assert.ok(["done", "done_no_artifact"].includes(row.status), `unexpected ${row.status}`);
+  assert.ok(listCalls >= 3);
+});
+
 function makeTestScheduler(schedules, agents) {
   const rows = schedules.map((s) => ({ ...s }));
   const dispatched = [];

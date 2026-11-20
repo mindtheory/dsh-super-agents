@@ -117,6 +117,7 @@ timeout、`ECONNRESET`/`EPIPE`/`socket hang up`），只对**瞬时**错误重�
 | 硬编码上限不得静默丢活（LobeHub #23421「drop the hard-coded 32-step cap on Channel runs」：固定上限把仍在推进的长任务截断且不留痕） | ✅ 采纳（`trimRuns` 只裁已终结行；`RUN_HISTORY_LIMIT` 默认 300 且由 `maxRunRows` 配置、50..5000 夹取） | 原实现 `rows.slice(-300)` 按"新近度"无差别裁剪：一个排队很久或跑得很久的 Run，可能被 300 条更新的行挤出 index，之后 `patchRun` 静默 no-op——它真的跑了（花掉模型调用、可能写了产物），但台账没有这一行、`sa_runs` 查不到、也没有 `failed`/`timeout` 这类终态信号。"无限历史"仍是拒绝的，被裁的只是历史（已终结行）；在飞行是状态而不是历史，永远保留 |
 | observe 模式渐进放权 | ✅ 精神采纳（调度先手动验证再挂 cron） | 理念"start narrow" |
 | 破坏性删除必须回传影响面（LobeHub #22313「let agent authors delete agents carrying teammates' topics, with an impact-aware confirm」：删 agent 要告诉调用方有多少他人内容一起进回收站） | ✅ 采纳（`sa_agent delete` 与 `/agent-delete` 回传 `impact: {schedules, queuedRuns, runningRuns, endedRuns}`；纯函数 `agentDeleteImpact` 只数不写） | 删卡连带删掉该 agent 的全部调度行，旧实现只回 `{ok:true}`：调用方（人或模型）以为"只是删了张卡"，实际 N 个 cron 一起消失，之后表现为"这个 agent 再也不自己干活了"，且回头查不到是谁删的。上游的教训是*先算影响再删*，等价物就是把连带销毁的计数回传；不改成"要求二次确认"（工具调用无 UI 握手，模板会退化成永远不删） |
+| 找不到运行背后的操作时不许猜结果（LobeHub #23431「settle a leftover running run instead of refusing runTask」：按行指向的 operation 实况判定，`no operation found` 就拒绝而不是猜） | ✅ 采纳（`execute()` 的兜底轮询把"会话不在宿主列表里"与"会话空闲"分成两个事实：前者落 `interrupted` + `ERR_RUN_SESSION_LOST`，后者才落 `done`/`done_no_artifact`） | 旧实现 `running = row ? row.running : false` 把"没查到"折成"没在跑"：会话被删/被清扫的 Run 会凭一个部分写入的产物文件被标成 `done`——没人观察到的完成比超时更糟，`sa_runs`、面板、自学习 hook 都会把它当事实（还会因此把该 Run 的反思蒸馏进 playbook）。上游的教训就是"找不到 operation 不猜结果"；这里把"查不到"落成 `interrupted`（会话没了，结果无法核验），而 `list` 抛错属于"没读到"不是"不存在"，继续等，不误判 |
 
 ## 三、重构路线（按基准对齐的顺序）
 

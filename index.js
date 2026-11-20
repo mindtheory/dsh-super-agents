@@ -803,6 +803,7 @@ function makeRunner(ctx, config, ledger, state, health) {
     const startedAt = Date.now();
     const limit = config.runTimeoutMs || 1800000;
     let settled = false;
+    let lostSession = false;
     while (Date.now() - startedAt < limit) {
       const why = await idleWatcher.wait(sessionId, controller.signal);
       if (why === "aborted") break;
@@ -811,13 +812,25 @@ function makeRunner(ctx, config, ledger, state, health) {
         log(run.id, `idle via host event after ${Date.now() - startedAt}ms`);
         break;
       }
+      // LobeHub #23431 ("no operation found: refuse without guessing"): a
+      // missing session row is a different fact from an idle one. The old read
+      // folded both into `running = false`, so a run whose session vanished got
+      // settled `done` off whatever artifact existed — a completion nobody
+      // observed. Absence is read as absence; the outcome stays unverified.
       let running = true;
+      let found = true;
       try {
         const list = await sc.list({}, new AbortController().signal);
         const row = (list.items || []).find((i) => i.sessionId === sessionId);
-        running = row ? row.running : false;
+        found = Boolean(row);
+        running = row ? row.running : true;
       } catch { /* transient read error: keep waiting */ }
       if (flight.cancelled) break;
+      if (!found) {
+        lostSession = true;
+        log(run.id, `session ${sessionId} is missing from the host session list`);
+        break;
+      }
       if (!running) {
         settled = true;
         log(run.id, statusEvents
@@ -830,6 +843,24 @@ function makeRunner(ctx, config, ledger, state, health) {
 
     if (flight.cancelled) {
       settleCancelled(run.id);
+      return;
+    }
+
+    // The session left the host's list while the run was in flight: the run
+    // did not report completion, and nothing can now report it. `interrupted`
+    // (session gone, outcome unverified) is the honest terminal state; `done`
+    // would be an inference from a file that may be a partial write.
+    if (lostSession) {
+      consecutiveFailures += 1;
+      reportRunnerHealth();
+      patchRun(run.id, {
+        status: "interrupted",
+        attempts: run.attempts,
+        endedAt: new Date().toISOString(),
+        error: `session ${sessionId} disappeared from the host session list while the run was in flight; outcome unverified`,
+        errorCode: "ERR_RUN_SESSION_LOST",
+      });
+      log(run.id, "interrupted: session lost");
       return;
     }
 

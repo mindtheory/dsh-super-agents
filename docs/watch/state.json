@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-20T13:20:00-05:00",
+  "checkedAt": "2026-11-21T13:12:00-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
     "head": "eeddb7d",
     "version": "0.1.0",
-    "headNote": "本次守望的功能提交（会话从宿主列表消失时落 interrupted，不猜 done）；承载本基线的 chore 提交紧随其后，故 head 在提交时点上是 eeddb7d。"
+    "headNote": "本轮无功能提交（无上游变更、17 个 LobeHub 提交全落已判不移植的簇），head 仍是上一次功能提交 eeddb7d；承载本基线的 chore 提交紧随其后，基线提交后 head 为 chore。"
   },
   "dsh": {
     "version": "0.2.1-rc.2",
@@ -20,7 +20,7 @@
       "latestReleaseTag": "dsh-v0.2.2-rc.5",
       "latestReleaseAt": "2026-11-18T12:51:39Z",
       "releaseChanged": false,
-      "releaseCheckedAt": "2026-11-20T13:20:00-05:00",
+      "releaseCheckedAt": "2026-11-21T13:12:00-05:00",
       "releaseCheckNote": "2026-11-20 复查 releases?per_page=3 首项仍是 dsh-v0.2.2-rc.5（2026-11-18T12:51:39Z），其后 rc.4（11-17）/rc.3（11-13）：无新 release（发布后两天内无 rc.6）。",
       "npmDistTagLatest": "0.2.2-rc.5",
       "upgradeAvailable": true,
@@ -30,7 +30,7 @@
         "（rc.3，已于 2026-11-13 记录）实验性「DeepSeek 会话导入」插件；Windows 应用内更新失败后无法自动重开",
         "（rc.2，已于 2026-11-11 记录）SubAgent 具名多层协作 / AgentTeam 按会话开启 / 可配置重试 / 工具错误类型"
       ],
-      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.5。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。2026-11-20 复查：三项版本信号全部与 11-19 相同——本机 `dsh --version` 仍 0.2.1-rc.2；GitHub releases 首项仍 dsh-v0.2.2-rc.5（2026-11-18T12:51:39Z，rc.4 11-17 / rc.3 11-13 依次其后）；npm registry dist-tags 仍 latest=0.2.2-rc.5 / next=0.2.2-rc.5 / alpha=0.2.2-alpha.3，rc.5 的 registry 时间戳仍是 2026-11-18T13:17:23Z（未变，即 11-19 的 latest promote 之后无新发布）。本机 13 个关注包源码 mtime 逐项与基线相等（仍是 2026-10-21T02:12Z 批），原型 repo 无新提交。可移植性判定沿用 11-18：rc.5 唯一一项「DeepSeek 模型走服务端搜索 / 其他模型走 DeepSeek Search API」完全在宿主检索路由与 LLM 请求环，本插件既不持有搜索工具也不发起检索，无可移植对象。",
+      "note": "本机 0.2.1-rc.2 低于上游 0.2.2-rc.5。升级需人工决定（红线：不改 DSH 安装目录），本插件 engines 仍为 >=0.2.0。2026-11-21 五路并查全部与 11-20 相同：本机 dsh --version 0.2.1-rc.2；GitHub releases?per_page=3 首项仍 dsh-v0.2.2-rc.5（2026-11-18T12:51:39Z，其后 rc.4 11-17T17:53:41Z / rc.3 11-13T07:56:55Z）；npm registry dist-tags latest=0.2.2-rc.5 / next=0.2.2-rc.5 / alpha=0.2.2-alpha.3，rc.5 registry 时间戳仍 2026-11-18T13:17:23.604Z（未变，即无新发布）；12 个跟踪包源码 mtime 逐项与基线完全相等（仍 2026-10-21T02:12Z 批）；原型 repo 无新提交。可移植性判定沿用 11-18：rc.5 唯一一项「DeepSeek 模型走服务端搜索 / 其他模型走 DeepSeek Search API」完全在宿主检索路由与 LLM 请求环，本插件既不持有搜索工具也不发起检索，无可移植对象。",
       "npmDistTagNext": "0.2.2-rc.5",
       "npmQueryMethodNote": "2026-11-13：本机 `npm view` 因 ~/.npm 缓存含 root 属主文件报 EACCES，改用 registry HTTP 直接读 dist-tags（https://registry.npmjs.org/@deepseek-ai%2Fdsh）：latest=0.2.2-rc.5（2026-11-18，11-19 由 rc.1 提升）、next=0.2.2-rc.5（2026-11-18）、alpha=0.2.2-alpha.3（2026-11-03）。"
     }
@@ -109,7 +109,9 @@
       }
     },
     "checkedAt": "2026-11-20T13:20:00-05:00",
-    "sampleNote": "2026-11-20 复核 13 个关注包（tracked 6 + resolvedTracked 5 + dsh-agent-loop/dsh-workflow/dsh-llm-retry/dsh-persona 抽样），源码 mtime 与基线逐项相等（pruned 采集，全部仍是 2026-10-21T02:12Z 批），无个别包更新。本机未升级，故包内容不随上游 release 变化。"
+    "sampleNote": "2026-11-20 复核 13 个关注包（tracked 6 + resolvedTracked 5 + dsh-agent-loop/dsh-workflow/dsh-llm-retry/dsh-persona 抽样），源码 mtime 与基线逐项相等（pruned 采集，全部仍是 2026-10-21T02:12Z 批），无个别包更新。本机未升级，故包内容不随上游 release 变化。",
+    "lastVerifiedAt": "2026-11-21T13:12:00-05:00",
+    "lastVerifyNote": "2026-11-21 pruned 采集 12 个跟踪包（dsh-base/dsh-schedule/dsh-agent/dsh-skill/dsh-goal/dsh-tool-goal/dsh-subagent/dsh-tool-subagent/dsh-subagent-fork-in-process/dsh-subagent-spawn-in-process/dsh-tool-subagent-control/dsh-goal-round-driver），mtime 逐项与基线完全相等（仍是 2026-10-21T02:12Z 批）；包总数仍 305。"
   },
   "prototypeRepo": {
     "repo": "deepseek-ai/dsh-superagent-prototype",
@@ -118,31 +120,31 @@
     "message": "feat: add the dsh-superagent research prototype",
     "pushedAt": "2026-11-03T09:29:14Z",
     "changed": false,
-    "note": "上游原型 repo 仍无新提交（commits?per_page=3 首项仍是 8c32a9dc5d72，committer date 2026-10-31T12:06:31Z）；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。2026-11-20 复查未变。",
-    "checkedAt": "2026-11-20T13:20:00-05:00"
+    "note": "上游原型 repo 仍无新提交（commits?per_page=3 首项仍是 8c32a9dc5d72，author date 2026-10-31T12:05:39Z）；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。2026-11-21 复查未变。",
+    "checkedAt": "2026-11-21T13:12:00-05:00"
   },
   "lobehub": {
     "repo": "lobehub/lobehub",
     "api": "https://api.github.com/repos/lobehub/lobehub/commits?since=<prevHead date>&per_page=100",
-    "sha": "8a4ce32138",
-    "commitDate": "2026-11-20T17:44:41Z",
-    "message": "🐛 fix(contact): name an Agent's card by its personal name, as every list does (#23569)",
-    "previousSha": "f773db0a0155cc1146c8882770400fb286cf8981",
+    "sha": "30986136de",
+    "commitDate": "2026-11-21T17:09:02Z",
+    "message": "✨ feat(sdk): readable operationIds, scopes, workspace, retries, typed errors, pagination, streaming and CI dri",
+    "previousSha": "8a4ce32138",
     "fetchFailed": false,
-    "note": "2026-11-20 评估 f773db0a01 之后 63 个提交（API 正常，per_page=100 一次覆盖）。命中 1 项并已实现：5cd61e1b9d(#23431 settle a leftover running run / fence a late completion) 里的判定规则「operation 找不到时不猜结果」——本插件兜底轮询把「会话不在宿主列表」折成「会话空闲」，会话被删/被清扫的 Run 会凭部分写入的产物被标 `done`，现落 `interrupted` + `ERR_RUN_SESSION_LOST`（eeddb7d）。其余逐项不移植：7e1562d3aa(#23444 runner 非 Task 创建者导致不结算) 的洞是「hook 按 createdByUserId 查 Task、丢了 workspace」，本插件无 workspace/多用户作用域；5cd61e1b9d 的拒绝闸门与晚到完成围栏本身也不存在——同 agent 可并行、无 running 拒绝、每条 settle 前都重读目标行；35b4ff610c(#23438 agent availability：设备在线/配额) 本插件无设备/配额/Redis，`enabled` 即全部可用性；43dfc70aa7(agent_deliveries 投递台账) 本插件 runs.json + result 文件已是台账；1ce7bdcefb/49f73191c5/8fe49a5f9c/5af9a24913/1b89933c8e/f77357e96f/43358e8005/4629e1cb34/d46a77aa0d/479ae3060d/d60e43246e/9d7e286485/55fb124fda/8a4ce32138/05bc09e28b/50522b782c/816e46b93f/f4c0de59af/f69ecef284/fa476c3e62 → channel/联系人/bot/共享 Agent（本插件无这些对象）；40060aa9e7/f2027f5365/843d626ea6/9463328d58/b3781352ca/a26f180d08/19d85c3008 → artboard/Works/任务页/知识库工具；a58ae9386e/2beaea5f24/ceb8b633fc/370392fecd/22bf753695/9a8571764f/f6c01bfc39/585ae785c6/057ee36970/a09a54f41f/45cd693e4c/dc1753fbee/9c1acaf43c/369fcc6e4b → 市场/技能/连接器/oidc/定价/数据库；c47510e357/579099b184/89b7d51732/83cbb33345/488273c66a/861773018c/3f09e5846c/9c51e3a49f/2cd1e71076/6659826c1a/58bae51c3e/d8ce91cd28/5d4975b805/559ae7ce83 → settings/sidebar/desktop/style/宿主提示词；30a5e19014/e6bcd13682 → 宿主沙箱。遗留待人工（沿用 2026-11-16 记录）：scheduler.fire() 里 runner.makeRun() 返回 null（同 id 行已存在）时仍 return true 且不给信号，正常路径不可达，继续不动。",
-    "commitCountSinceBaseline": 63
+    "note": "2026-11-21 评估 8a4ce32138 之后 17 个提交（since=2026-11-20T17:44:41Z&per_page=100，API 正常，18 行含基线首项自身，故新增 17）。逐簇判定后无一命中可移植项，按「洞是什么」归档：① SDK/API 面 30986136de（operationIds/scopes/workspace/retries/typed errors/pagination/streaming/CI）→ 本插件是宿主的工具插件，不持有 HTTP SDK/API 面，重试由自有 isTransientError/retryDelay 承担；② marketplace/model-bank/contact/share/auth（42f9451756/ede931dba9/016e23745e/bc7465b119/8b952a0cb2/81b8637a2e/c4895b461c/aa88a6c418）→ 本插件无市场/共享/联系人/账户对象；③ channel opener 18db6d97a7（只在 Agent 自己 2h 内活跃、且无其他 Agent 应答的 Thread 里续聊）→ 本插件 sa_say 按 runId 直接定位该 run 的 sessionId，没有「候选 Thread 集 + 归因」这一层，无该歧义可修；④ 工具/技能两态激活 c5d79a355d、context-engine 前缀稳定 5c17a06e39、内置工具提示词瘦身 f105f043ab → 宿主提示词与工具装配层；⑤ provider 接入 3bdcf55a43（antigravity 模型/effort/FullAccess/配额认证/实时 steer）→ 本插件只透传 provider/model 字符串；⑥ UI/设置/输入框文案 97de32dad2/009305e021/5779bbdd3d → 宿主 UI。",
+    "commitCountSinceBaseline": 17
   },
   "web": {
     "lastQuery": "DeepSeek Harness super agent | dsh-superagent-prototype update | DeepSeek Harness release 2026",
-    "lastResultNote": "2026-11-20 检索结果仍无新上游动态：既有那批仍在（央广/上海证券报/搜狐/阿里云/七牛的 Super-agent 报道、dataconomy 的 dsh-superagent 报道、原型 repo 页面仍停在 8c32a9dc5d72、知乎 0.2.2 综述与腾讯云 rc.2 解析文），本次新出现的只有 npm 三方包 @baymaxhit/dsh-superagent（非官方、同名壳/占位包）与 dsh-ai.com、deepseek-code.com 这类社区站，均无与本插件对象相交的新机制；rc.5 解读仍属宿主检索路由。",
-    "checkedAt": "2026-11-20T13:20:00-05:00"
+    "lastResultNote": "2026-11-21 检索结果与 11-20 同一批，无新上游动态：央广/上海证券报(中国证券网)/智博会/阿里云开发者社区/dataconomy 的 Super-agent 与 dsh-superagent 报道、npm 上的三方壳包 @baymaxhit/dsh-superagent 与 dsh-superagent-prototype、原型 repo 页面仍停在 8c32a9dc5d72、知乎 0.2.2 综述与腾讯云 rc.2 解析文；无与 rc.5 之后相关的新发布解读，rc.5 可移植性判定不变（宿主检索路由）。",
+    "checkedAt": "2026-11-21T13:12:00-05:00"
   },
   "testBaseline": {
     "unit": "45/45 pass",
     "smoke": "SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully",
     "allGreen": true,
-    "note": "测试在 /tmp 副本执行：cp -r 仓库 → ln -sfn <dsh install>/node_modules node_modules → node --test / node test/smoke.test.mjs → rm -rf 副本。本次 +2 例（会话从宿主列表消失落 interrupted + ERR_RUN_SESSION_LOST；list 读失败不算会话消失），43 → 45。",
-    "checkedAt": "2026-11-20T13:20:00-05:00"
+    "note": "测试在 /tmp 副本执行（cp -r 仓库 → ln -sfn <dsh install>/node_modules → node --test / smoke → rm -rf 副本）。本轮为纯基线轮，无代码改动，测试仅用于确认 45/45 与 smoke 基线未漂移：unit 45/45 pass、smoke SMOKE OK: 8 tools, 8 routes。",
+    "checkedAt": "2026-11-21T13:12:00-05:00"
   },
   "processed": [
     {
@@ -333,6 +335,20 @@
       "title": "会话从宿主列表消失时不许猜 done：兜底轮询落 interrupted + ERR_RUN_SESSION_LOST；list 读失败仍继续等",
       "action": "implemented（execute() 兜底轮询分离「查不到」与「空闲」+ README/001/003 + 测试 2 例，43→45 全绿）",
       "commit": "eeddb7d"
+    },
+    {
+      "date": "2026-11-21",
+      "id": "upstream-recheck-1121",
+      "title": "复查上游五路读数：本机 dsh 0.2.1-rc.2、GitHub releases 首项 rc.5(11-18T12:51:39Z)、npm dist-tags latest/next=rc.5(registry 11-18T13:17:23.604Z)、12 个跟踪包 mtime 逐项相等、原型 repo 8c32a9dc5d72 无新提交",
+      "action": "no-action（只更新基线；rc.5 可移植性判定沿用 11-18：宿主检索路由，无可移植对象）",
+      "commit": null
+    },
+    {
+      "date": "2026-11-21",
+      "id": "lobehub-review-17",
+      "title": "评估 LobeHub 8a4ce32138 之后 17 个提交（SDK 面/marketplace/contact/auth/channel opener/工具技能激活/context-engine/provider 接入/UI 九簇）",
+      "action": "no-action（无对应对象，逐簇判定记入 lobehub.note，下轮直接跳过这些簇）",
+      "commit": null
     }
   ]
 }

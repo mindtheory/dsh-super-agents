@@ -732,3 +732,47 @@ hook 都会当成事实（还会把该 Run 的反思蒸馏进 playbook）。→ 
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
 - 本次累计改动 88 行（+88 −3：index.js +32/−1、test +50、README −1/+1、docs/001 +4/−1、docs/003 +1），
   在 300 行红线内。
+
+---
+
+## 2026-11-21 · 上游五路读数全冻结；LobeHub 17 提交全落已判不移植簇（无改动轮）
+
+**结论**：无更新，无功能改动。本次只刷新 `state.json` 基线。
+
+### 一、五路读数（逐项与 11-20 相等）
+
+| 信号 | 本次读数 | 与基线 |
+| --- | --- | --- |
+| 本机 `dsh --version` | `0.2.1-rc.2` | 相等 |
+| GitHub releases 首项 | `dsh-v0.2.2-rc.5` · 2026-11-18T12:51:39Z（其后 rc.4 11-17T17:53:41Z / rc.3 11-13T07:56:55Z） | 相等 |
+| npm dist-tags | latest=`0.2.2-rc.5` / next=`0.2.2-rc.5` / alpha=`0.2.2-alpha.3`；rc.5 的 registry 时间戳 2026-11-18T13:17:23.604Z | 相等（时间戳未变 ⇒ 无新发布、也不是本次 promote） |
+| 12 个跟踪包源码 mtime（pruned） | 仍 2026-10-21T02:12Z 批，逐项与基线完全相等；包总数 305 | 相等 |
+| 原型 repo `deepseek-ai/dsh-superagent-prototype` | 首项仍 `8c32a9dc5d72` · 2026-10-31T12:05:39Z | 相等 |
+
+web 检索仍是 11-20 那批三方报道与壳包（[央广](http://news.cnr.cn/native/gd/kx/20261102/t20261102_527860134.shtml)、[dataconomy](https://dataconomy.com/2026/11/02/deepseek-releases-open-source-dsh-superagent-coding-agent/)、[阿里云社区](https://developer.aliyun.com/article/1778659)），无 rc.5 之后的新上游资讯。rc.5 的可移植性判定沿用 11-18：宿主检索路由与 LLM 请求环，本插件无搜索工具、不发起检索，无可移植对象。升级到 rc.5 仍待人工决定（红线：不改 DSH 安装目录）。
+
+### 二、LobeHub 17 个提交：九簇全无对应对象
+
+区间 `8a4ce32138`(11-20T17:44:41Z) → `30986136de`(11-21T17:09:02Z)，API 正常，`since=…&per_page=100` 一次覆盖（18 行含基线首项自身）。仍按「洞是什么」而非标题分簇，逐簇核本插件有无该机制：
+
+- **SDK/API 面** `30986136de`（operationIds / scopes / workspace / retries / typed errors / pagination / streaming / CI）→ 本插件是宿主工具插件，不持有 HTTP SDK/API 面；自有重试在 `isTransientError`/`retryDelay`，与本提交无关。
+- **marketplace / model-bank / contact / share / auth**（`42f9451756`/`ede931dba9`/`016e23745e`/`bc7465b119`/`8b952a0cb2`/`81b8637a2e`/`c4895b461c`/`aa88a6c418`）→ 无市场、共享、联系人、账户对象。
+- **channel opener** `18db6d97a7`（只在 Agent 自己 2h 内活跃、且无其他 Agent 应答的 Thread 里续聊）→ 本插件 `sa_say` 按 `runId` 直接取该 run 的 `sessionId`，不存在「候选 Thread 集 + 归因」这层，故无该歧义可修。
+- **工具/技能两态激活** `c5d79a355d`、**context-engine 前缀稳定** `5c17a06e39`、**内置工具提示词瘦身** `f105f043ab` → 宿主提示词与工具装配层，本插件的工具面由宿主注册，不自管激活态。
+- **provider 接入** `3bdcf55a43`（antigravity：模型/effort、FullAccess、配额认证检测、实时 steer）→ 本插件只把 `provider/model` 字符串透传给宿主 `selectModel`。
+- **UI / 设置 / 输入框 / goal 活动时间线文案**（`97de32dad2`/`009305e021`/`5779bbdd3d`）→ 宿主 UI。
+
+`5779bbdd3d` 虽含 `goal` 字样，洞是「活动时间线里暴露内部 reason 文案」，属宿主呈现层；本插件不渲染 timeline、也无 goal 对象，不移植。
+
+### 三、行动
+
+- 无代码改动（连基线轮改动量为 0，`:docs` 两个文件）。
+- 测试仍全绿以确认基线未漂移（在 /tmp 副本执行，仓库目录内不建 `node_modules`）：`node --test test/unit.test.js` 45/45 pass；`node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+- 提交：`chore: update frontier watch baseline (no upstream change, 17 lobehub commits, no portable item)`。
+- 下轮直接跳过本次九簇，避免重复评估同一批提交。
+
+### 四、待人工 / 遗留（沿用）
+
+- **是否升级到 0.2.2-rc.5**：待人工决定（红线：不改 DSH 安装目录）。
+- 遗留：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。

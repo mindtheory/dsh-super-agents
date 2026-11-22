@@ -254,6 +254,9 @@ window.__ModuleLoader__.load({
                   h("span", { className: "saMono" }, sc.id),
                   h("span", null, sc.agentName),
                   h("span", { className: "saMono" }, sc.kind + " " + (sc.cron || sc.everySeconds + "s" || (sc.at || "").slice(0, 16))),
+                  // Read-time state from the plugin: health + when it fires next, so
+                  // "looks configured" cannot pass for "will fire".
+                  h("span", { className: "saMono", title: (sc.state && sc.state.reason) || "" }, sc.state ? sc.state.health + (sc.state.nextFireAt ? " @" + sc.state.nextFireAt.slice(5, 16).replace("T", " ") : "") : ""),
                   h("span", { className: "saMono", style: { maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, sc.title || sc.prompt)
                 );
               })

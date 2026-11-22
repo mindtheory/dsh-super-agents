@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { __internals } from "../index.js";
 
-const { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, agentDeleteImpact, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
+const { parseCron, cronMatches, minuteKey, nextCronOccurrence, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, agentDeleteImpact, nextFireAt, scheduleState, scheduleOverview, SCHEDULE_GROUPS, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay } = __internals;
 
 test("key: deterministic id (equal inputs -> equal id)", () => {
   assert.equal(key("run", "s-1", "2026-11-10T02:00"), key("run", "s-1", "2026-11-10T02:00"));
@@ -618,7 +618,7 @@ function makeTestScheduler(schedules, agents) {
     agents: () => agents,
   };
   const runner = {
-    makeRun: (agent, opts) => ({ id: opts.id, agentId: agent.id, kind: opts.kind }),
+    makeRun: (agent, opts) => ({ id: opts.id, agentId: agent.id, kind: opts.kind, scheduleId: opts.scheduleId }),
     enqueue: (run) => dispatched.push(run),
   };
   const health = makeHealth();
@@ -692,6 +692,102 @@ test("scheduler: a refused one-shot is consumed and stays out of the ongoing war
   assert.match(rows[0].lastSkipReason, /已停用/);
   const entry = health.list().find((e) => e.name === "scheduleDispatch");
   assert.equal(entry.level, "ok"); // history on the row, not an ongoing skip
+});
+
+// A schedule row is configuration; "will it fire, and if not why" is a separate
+// read-time fact (LobeHub #23661/#23622 made the scheduled-task table read its
+// sections off such a state). These pin the judgment order and the next-fire
+// arithmetic the tool, the panel route and `sa_schedule list` share.
+test("schedule state: next fire is the next matching wall-clock minute", () => {
+  const weekly = parseCron("0 9 * * 1-5");
+  const from = new Date("2026-11-20T10:30:00Z"); // a Friday
+  assert.equal(nextCronOccurrence(weekly, "UTC", from).toISOString(), "2026-11-23T09:00:00.000Z"); // Monday
+  // minute-level pattern: stays inside the day, no hour jump wasted
+  assert.equal(
+    nextCronOccurrence(parseCron("15 * * * *"), "", new Date(2026, 10, 20, 10, 30)).toISOString(),
+    new Date(2026, 10, 20, 11, 15).toISOString(),
+  );
+  // a yearly pattern is found by hour-stepping, not by walking every minute
+  assert.equal(
+    nextCronOccurrence(parseCron("0 0 29 2 *"), "UTC", new Date("2027-03-01T00:00:00Z")).toISOString(),
+    "2028-02-29T00:00:00.000Z",
+  );
+  assert.equal(nextCronOccurrence(null, "", from), null);
+});
+
+test("schedule state: an unavailable target reads blocked, not scheduled", () => {
+  const now = new Date("2026-11-20T10:30:00Z");
+  const row = { id: "s-1", agentId: "a-1", enabled: true, kind: "cron", cron: "0 9 * * 1-5", tz: "UTC" };
+  const ok = scheduleState(row, { agents: [{ id: "a-1", enabled: true }], runs: [], now });
+  assert.equal(ok.health, "scheduled");
+  assert.equal(ok.group, "scheduled");
+  assert.equal(ok.nextFireAt, "2026-11-23T09:00:00.000Z");
+
+  const missing = scheduleState(row, { agents: [], runs: [], now });
+  assert.equal(missing.health, "blocked");
+  assert.equal(missing.group, "attention");
+  assert.equal(missing.nextFireAt, null); // it will not fire on its own
+  assert.match(missing.reason, /不存在/);
+
+  const off = scheduleState(row, { agents: [{ id: "a-1", enabled: false }], runs: [], now });
+  assert.equal(off.health, "blocked");
+  assert.match(off.reason, /已停用/);
+});
+
+test("schedule state: a live run, a consumed one-shot and a refusal each read differently", () => {
+  const now = new Date("2026-11-20T10:30:00Z");
+  const agent = { id: "a-1", enabled: true };
+  const row = { id: "s-1", agentId: "a-1", enabled: true, kind: "every", everySeconds: 60, lastFiredAt: "2026-11-20T10:29:00Z" };
+  const live = scheduleState(row, {
+    agents: [agent],
+    runs: [{ id: "r-1", scheduleId: "s-1", status: "running" }, { id: "r-0", scheduleId: "s-1", status: "done" }],
+    now,
+  });
+  assert.equal(live.health, "running");
+  assert.equal(live.group, "running");
+  assert.equal(live.liveRuns, 1); // terminal rows do not count as in flight
+
+  const fired = scheduleState(
+    { id: "s-2", agentId: "a-1", enabled: true, kind: "at", at: "2026-11-19T00:00:00Z", firedAt: "2026-11-19T00:00:01Z" },
+    { agents: [agent], runs: [], now },
+  );
+  assert.equal(fired.health, "done");
+  assert.equal(fired.group, "inactive");
+  assert.equal(fired.nextFireAt, null);
+
+  const skipped = scheduleState(
+    { ...row, skippedCount: 2, lastSkipReason: "agent a-1 已停用" },
+    { agents: [agent], runs: [], now },
+  );
+  assert.equal(skipped.health, "skipped");
+  assert.equal(skipped.group, "attention");
+  assert.match(skipped.reason, /已停用/);
+});
+
+test("schedule state: every row lands in exactly one group", () => {
+  const now = new Date("2026-11-20T10:30:00Z");
+  const rows = [
+    { id: "s-1", agentId: "a-1", enabled: true, kind: "every", everySeconds: 60, lastFiredAt: "2026-11-20T10:29:00Z" },
+    { id: "s-2", agentId: "gone", enabled: true, kind: "cron", cron: "0 9 * * *", tz: "" },
+    { id: "s-3", agentId: "a-1", enabled: false, kind: "cron", cron: "0 9 * * *", tz: "" },
+  ];
+  const { schedules, summary } = scheduleOverview(rows, { agents: [{ id: "a-1", enabled: true }], runs: [], now });
+  assert.deepEqual(Object.keys(summary), [...SCHEDULE_GROUPS]);
+  assert.equal(Object.values(summary).reduce((a, b) => a + b, 0), rows.length);
+  assert.equal(summary.scheduled, 1);
+  assert.equal(summary.attention, 1);
+  assert.equal(summary.inactive, 1);
+  assert.equal(summary.running, 0);
+  assert.equal(schedules.length, 3); // rows kept as-is, state attached
+  assert.equal(schedules[0].id, "s-1");
+});
+
+test("scheduler: a dispatched run records the schedule that fired it", () => {
+  const agent = { id: "a-1", name: "T", enabled: true };
+  const { scheduler, dispatched } = makeTestScheduler([everyRow()], [agent]);
+  scheduler.tick();
+  assert.equal(dispatched.length, 1);
+  assert.equal(dispatched[0].scheduleId, "s-every");
 });
 
 // The `sa_runs` filter is a tool-schema enum, so a status it omits is not an

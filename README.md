@@ -88,7 +88,7 @@ nothing.
 | `sa_runs` | List runs (`queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled`) |
 | `sa_run_result` | Fetch a run's full artifact |
 | `sa_say` | Follow-up message into a run's session (`steer` while it runs, `queue` after it ends) |
-| `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` / `delete` |
+| `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` (per-row `state` + group `summary`) / `delete` |
 | `sa_learn` | Append lessons manually, or distill from a finished run |
 | `sa_health` | Health board (`scheduler` / `runner` / `sessionController` / `pause` / `scheduleDispatch`) + global schedule pause/resume |
 
@@ -119,6 +119,23 @@ sa_run_result     → collect any run's artifact anytime
 > Cron expressions are matched against the **host's local clock** by default.
 > Pass `tz` (an IANA zone such as `Asia/Shanghai`) when the schedule should keep
 > wall-clock time in a zone other than the host's — DST is handled for you.
+
+`sa_schedule list` answers what each row is **doing**, not just how it is configured. Every
+row carries a read-time `state` — `{health, group, nextFireAt, liveRuns, reason}` — plus a
+`summary` counting the groups (`attention` / `running` / `scheduled` / `inactive`), so a
+schedule that will never fire again cannot pass for a healthy one:
+
+| `health` | what it means | group |
+| --- | --- | --- |
+| `blocked` | the target agent was deleted or switched off — every tick is refused | `attention` |
+| `skipped` | refusals are already recorded on the row (`skippedCount` / `lastSkipReason`) | `attention` |
+| `unknown` | no next fire can be computed (unparsable cron, or none within 366 days) | `attention` |
+| `running` | a run this schedule dispatched is still `queued`/`running` | `running` |
+| `scheduled` | healthy, waiting for `nextFireAt` | `scheduled` |
+| `done` / `disabled` | a one-shot that already fired / a switched-off row — will not fire on its own | `inactive` |
+
+`nextFireAt` is `null` whenever the row will not fire on its own (that is the rule, not an
+error), and the state is computed at read time — never persisted — so it cannot go stale.
 
 ## How a run works
 

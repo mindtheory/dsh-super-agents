@@ -126,14 +126,32 @@ function parseCron(expr) {
 
 // IANA zone → wall-clock parts of `date` in that zone (host-local when tz is empty).
 // Returns null for an invalid zone so callers can fall back instead of throwing.
-function zonedParts(date, tz) {
-  if (!tz) return null;
+// Constructing Intl.DateTimeFormat costs ~20x formatting, and cron evaluation
+// formats once per probe: every scheduler tick, and up to ~8.8k probes when
+// answering "when does this fire next". Cache one formatter per zone; an invalid
+// zone is cached as null so a bad `tz` cannot be re-parsed on every call.
+const zoneFormatters = new Map();
+function zoneFormatter(tz) {
+  if (zoneFormatters.has(tz)) return zoneFormatters.get(tz);
+  let fmt = null;
   try {
-    const fmt = new Intl.DateTimeFormat("en-US", {
+    fmt = new Intl.DateTimeFormat("en-US", {
       timeZone: tz, hourCycle: "h23",
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", weekday: "short",
     });
+  } catch {
+    fmt = null;
+  }
+  zoneFormatters.set(tz, fmt);
+  return fmt;
+}
+
+function zonedParts(date, tz) {
+  if (!tz) return null;
+  const fmt = zoneFormatter(tz);
+  if (!fmt) return null;
+  try {
     const parts = {};
     for (const { type, value } of fmt.formatToParts(date)) parts[type] = value;
     const dow = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[parts.weekday];
@@ -185,6 +203,38 @@ function minuteKey(date, tz) {
   if (z) return z.key;
   const p = (n) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
+// Next wall-clock minute matching `spec` strictly after `from` (null when none
+// within the cap). Date/hour gate a whole hour at a time, so a yearly pattern
+// costs ~8.8k probes instead of 527k minutes.
+const NEXT_FIRE_CAP_DAYS = 366;
+function nextCronOccurrence(spec, tz, from, capDays) {
+  if (!spec) return null;
+  const cap = (Number(capDays) || NEXT_FIRE_CAP_DAYS) * 86400000;
+  const limit = from.getTime() + cap;
+  // Start at the next whole minute: "strictly after from" in cron terms.
+  let t = new Date(Math.floor(from.getTime() / 60000) * 60000 + 60000);
+  while (t.getTime() <= limit) {
+    const z = zonedParts(t, tz);
+    const minute = z ? z.minute : t.getMinutes();
+    const hour = z ? z.hour : t.getHours();
+    const day = z ? z.day : t.getDate();
+    const month = z ? z.month : t.getMonth() + 1;
+    const dow = z ? z.dow : t.getDay();
+    if (!spec.month.has(month) || !spec.dom.has(day) || !spec.dow.has(dow) || !spec.hour.has(hour)) {
+      // Jump to the next wall-clock hour boundary (DST may make the wall hour
+      // repeat or vanish; that is exactly what the outer loop re-checks).
+      t = new Date(t.getTime() + (minute === 0 ? 60 : 60 - minute) * 60000);
+      continue;
+    }
+    if (!spec.minute.has(minute)) {
+      t = new Date(t.getTime() + 60000);
+      continue;
+    }
+    return t;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +544,79 @@ function agentDeleteImpact(agentId, schedules, runs) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// schedule state: what a schedule is doing, not just how it is configured
+// ---------------------------------------------------------------------------
+
+// A schedule row records configuration; it cannot answer "will it fire, and if
+// not why?". LobeHub #23661/#23622 made the scheduled-task table read its
+// sections off such a state; the equivalent here is a read-time state (never
+// persisted) shared by `sa_schedule list` and the panel route, so the two
+// cannot describe the same schedule differently.
+const SCHEDULE_GROUPS = Object.freeze(["attention", "running", "scheduled", "inactive"]);
+
+// When this row fires next, on its own; null when it will not (or cannot be
+// computed). Same rules the tick acts on: `at` fires at its instant, `every`
+// advances from last fire (or creation), `cron` is evaluated in its zone.
+function nextFireAt(row, now) {
+  if (row.kind === "at") {
+    if (row.firedAt) return null;
+    const at = Date.parse(row.at);
+    return Number.isNaN(at) ? null : new Date(at);
+  }
+  if (row.kind === "every") {
+    const base = Date.parse(row.lastFiredAt || row.createdAt);
+    const interval = (Number(row.everySeconds) || 3600) * 1000;
+    if (Number.isNaN(base) || interval < 60000) return null;
+    return new Date(base + (Math.floor((now.getTime() - base) / interval) + 1) * interval);
+  }
+  if (row.kind === "cron") return nextCronOccurrence(parseCron(row.cron), row.tz || "", now);
+  return null;
+}
+
+// Judgment order, first hit wins: consumed/disabled rows are *inactive* rather
+// than broken; an unavailable target is the actionable case; a refusal already
+// on the row is next; an in-flight run means the next occurrence is queued
+// behind it; anything else is healthy and scheduled.
+function scheduleState(row, ctx) {
+  const now = (ctx && ctx.now) || new Date();
+  const agent = ((ctx && ctx.agents) || []).find((a) => a.id === row.agentId);
+  const liveRuns = ((ctx && ctx.runs) || []).filter(
+    (r) => r.scheduleId === row.id && LIVE_RUN_STATUSES.includes(r && r.status),
+  ).length;
+  const state = (health, group, extra) => ({ health, group, nextFireAt: null, liveRuns, reason: "", ...(extra || {}) });
+  if (row.kind === "at" && row.firedAt) return state("done", "inactive", { reason: "一次性调度已触发" });
+  if (row.enabled === false) return state("disabled", "inactive", { reason: "调度已停用，不会触发" });
+  if (!agent) return state("blocked", "attention", { reason: `目标 agent ${row.agentId} 不存在` });
+  if (agent.enabled === false) return state("blocked", "attention", { reason: `目标 agent ${row.agentId} 已停用` });
+  if (liveRuns > 0) return state("running", "running");
+  if (Number(row.skippedCount) > 0) {
+    return state("skipped", "attention", {
+      reason: row.lastSkipReason || `已连续被跳过 ${row.skippedCount} 次`,
+    });
+  }
+  const next = nextFireAt(row, now);
+  if (!next) {
+    // A row that computes no next fire is not healthy: `scheduled` would imply
+    // a tick will happen. Say it needs a human instead.
+    return state("unknown", "attention", { reason: "无法计算下次触发（cron 非法或超过 366 天窗口）" });
+  }
+  return state("scheduled", "scheduled", { nextFireAt: next.toISOString() });
+}
+
+// Rows plus group counts, so a caller can show "2 need attention" without
+// re-deriving the rules.
+function scheduleOverview(rows, ctx) {
+  const summary = {};
+  for (const group of SCHEDULE_GROUPS) summary[group] = 0;
+  const schedules = (rows || []).map((row) => {
+    const state = scheduleState(row, ctx);
+    if (summary[state.group] !== undefined) summary[state.group] += 1;
+    return { ...row, state };
+  });
+  return { schedules, summary };
+}
+
 function makeRunner(ctx, config, ledger, state, health) {
   const queue = [];
   let active = 0;
@@ -569,6 +692,10 @@ function makeRunner(ctx, config, ledger, state, health) {
       agentName: agent.name,
       kind: opts.kind || "manual",
       trigger: opts.trigger || "manual",
+      // Which schedule dispatched this run, so `sa_schedule list` can tell a
+      // schedule with a live run from one that is merely waiting (empty for
+      // manual/reflection runs and for rows written before this field).
+      scheduleId: opts.scheduleId || "",
       taskText: opts.taskText || "",
       reflectionSource: opts.reflectionSource,
       cwd,
@@ -986,6 +1113,7 @@ function makeScheduler(config, ledger, runner, state, health, pause) {
       id: `r-${key("run", row.id, occ)}`, // deterministic: replay-safe (docs/001)
       kind: "scheduled",
       trigger: "schedule",
+      scheduleId: row.id,
       taskText: row.prompt,
       cwd: row.cwd,
       model: row.model,
@@ -1336,7 +1464,11 @@ function registerTools(ctx, config, ledger, runner, scheduler, state, health, pa
         return json({ ok: true, schedule: row });
       }
       if (args.action === "list") {
-        return json({ ok: true, schedules: rows });
+        // Each row answers "what is it doing": state.health/group/nextFireAt/
+        // liveRuns/reason are computed at read time, never persisted, so a
+        // schedule whose agent was switched off reads as `blocked` immediately
+        // instead of after a skipped tick.
+        return json({ ok: true, ...scheduleOverview(rows, { agents: ledger.agents(), runs: ledger.runs() }) });
       }
       const row = rows.find((s) => s.id === args.scheduleId);
       if (!row) throw new Error(`schedule 不存在: ${args.scheduleId}`);
@@ -1487,7 +1619,9 @@ function registerRoutes(ctx, config, ledger, runner, state, health, pause) {
         return writeJson(res, 200, {
           ok: true,
           agents: ledger.agents().map((a) => ({ ...a, playbook: readPlaybook(ledger.playbookPath(a.id), 1200) })),
-          schedules: ledger.schedules(),
+          // Same read-time state the tool returns, so the panel cannot disagree
+          // with `sa_schedule list` about a schedule's health.
+          ...scheduleOverview(ledger.schedules(), { agents: ledger.agents(), runs: ledger.runs() }),
           runs: ledger.runs().slice(-60).reverse(),
           queue: runner.queueSize(),
           active: runner.activeCount(),
@@ -1673,7 +1807,7 @@ function registerSkill(ctx) {
 export { name, inject, Config };
 
 /** Pure helpers exported for Node-side unit tests (no runtime consumer). */
-export const __internals = { parseCron, cronMatches, minuteKey, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, agentDeleteImpact, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
+export const __internals = { parseCron, cronMatches, minuteKey, nextCronOccurrence, zonedParts, isValidTz, key, RUN_STATUSES, RUN_HISTORY_LIMIT, LIVE_RUN_STATUSES, listRuns, trimRuns, agentDeleteImpact, nextFireAt, scheduleState, scheduleOverview, SCHEDULE_GROUPS, makeLedger, makeHealth, appendPlaybook, readPlaybook, buildTaskPrompt, buildReflectionPrompt, resolveDataDir, isTransientError, retryDelay, makeRunner, makeIdleWatcher, makeScheduler, sayMode, sayRequest, isSteerUnavailable, deliverSay };
 
 export function apply(ctx, config) {
   const resolved = config || {};

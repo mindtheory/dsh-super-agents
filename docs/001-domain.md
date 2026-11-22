@@ -26,7 +26,7 @@ flowchart LR
 | 概念 | 定义 | 它守住的规则 | 为什么存在 |
 | --- | --- | --- | --- |
 | Agent（角色卡） | 一份持久化的 agent 配置：名字、系统人设、默认模型、工作目录、是否自学习、是否启用 | 配置即数据（JSON 台账），不是代码；停用不删除；删除时连带删掉它的调度 | 让"常驻 AI 员工"成为可增删改的数据，宿主重启不丢 |
-| Schedule（调度） | Agent 的一条自主领活规则：cron / everySeconds / at 三选一 + 任务文本 + 可选 IANA 时区 | 一条规则只有一种触发方式；cron 按"时区内的分钟"去重，同一分钟只触发一次；`at` 触发一次后标记 firedAt；停用的规则不触发但保留 | 让 agent 不等人派活也能干活，且不重复触发 |
+| Schedule（调度） | Agent 的一条自主领活规则：cron / everySeconds / at 三选一 + 任务文本 + 可选 IANA 时区 | 一条规则只有一种触发方式；cron 按"时区内的分钟"去重，同一分钟只触发一次；`at` 触发一次后标记 firedAt；停用的规则不触发但保留；**行只记配置，"会不会触发"由读时 `state` 判定** | 让 agent 不等人派活也能干活，且不重复触发 |
 | Occurrence（触发次） | 一次调度命中：cron 是"时区墙钟分钟"，every 是"到点的时刻"，at 是"那个时刻" | 由 `(scheduleId, occurrence)` 派生出**确定性 id**；同 id 的 Run 只存在一个 | 崩溃重启、重复 tick 都不会重复派活 |
 | Run（运行） | 一次执行：属于某个 Agent，带任务文本、工作目录、模型、产物路径、状态、错误码 | 创建即落盘（先持久化再执行）；状态只能单向推进；一个 Run 一个会话一个产物 | 审计单位、幂等单位、恢复单位 |
 | Artifact（产物） | Run 唯一的正式交付物：一个 Markdown 文件 | 必须位于 Run 的 cwd 内（worker 沙箱只允许写自己 cwd）；第一行是一句话结论；没有产物 = `done_no_artifact`，不算成功 | 让"干完了"有可验证的凭据，而不是模型自说自话 |
@@ -62,6 +62,32 @@ Run 的 `status` 是事实，不是意图。判定表从上往下读，第一行
 `failed` 并带代码：agent 已删除 → `ERR_RUN_AGENT_MISSING`；agent 已停用 → `ERR_RUN_AGENT_DISABLED`
 （停用按"拒绝"处理而不是"无限等"，`sa_run` 本来也拒绝停用 agent）。行上的 `taskText` 保留，
 重新启用后再派一次即可，任务不丢。这是"被拒的派工必须收口"在 Run 侧的同一规则。
+
+## 调度状态（读时判定，不落盘）
+
+调度行只记**配置**，回答不了"它下次会不会触发？不会为什么？"——行看上去健康，也可能每 tick 都被拒
+（目标 agent 停用/删除）、一次性已消费、或本调度派出的 Run 还在飞。因此 `sa_schedule list` 与面板
+`/api/dsh-super-agents/state` 共用一套**读时状态**（LobeHub #23661/#23622 的定时任务分区，工具侧等价物）：
+
+| 判定顺序 | `health` | `group` | 含义 |
+| --- | --- | --- | --- |
+| 1 | `done` | `inactive` | 一次性调度已触发（`firedAt` 已写），不会再触发 |
+| 2 | `disabled` | `inactive` | 行本身停用（`enabled=false`） |
+| 3 | `blocked` | `attention` | 目标 agent 不存在或已停用：每一次 tick 都会被拒 |
+| 4 | `running` | `running` | 本调度派出的 Run 仍 `queued`/`running`（由 `run.scheduleId` 归因） |
+| 5 | `skipped` | `attention` | 行上已有被拒记录（`skippedCount`/`lastSkipReason`） |
+| 6 | `unknown` | `attention` | 算不出下次触发（cron 非法或 366 天内无命中） |
+| 7 | `scheduled` | `scheduled` | 健康，等待 `nextFireAt` |
+
+规则：
+- `nextFireAt` **只在它会自己触发时**给出；`done`/`disabled`/`blocked` 一律 `null`。
+  "null 表示不会自己触发"是规则，不是缺值。
+- 状态**不落盘**：配置是事实，状态是判定的结果。写进台账会立刻过期，而读时计算不可能与
+  当前 agent 表、Run 表不一致。
+- Run 落 `scheduleId` 才能归因"本调度的在飞 Run"；手工/反思 Run 为空，旧行没有这个字段
+  （按"未知归属"处理，不猜测）。
+- 判定顺序是从"最不可挽回"到"最正常"：已消费/已停用的行是**历史**，不该持续报警；
+  目标 agent 不可用才是要人动手的那一类。
 
 ## 幂等 id
 

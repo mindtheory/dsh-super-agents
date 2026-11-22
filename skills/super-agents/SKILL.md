@@ -16,7 +16,7 @@ description: DSH 超级智能体（dsh-super-agents 插件）：创建持久化 
 | `sa_runs` | 运行列表（queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled） |
 | `sa_run_result` | 取某次运行的交付物全文 |
 | `sa_say` | 对已有 run 的会话追加指令：运行中 `steer` 中途纠偏，结束后 `queue` 追问（`mode` 可强制） |
-| `sa_schedule` | 自主领活：cron / everySeconds / at 三种模式登记任务 |
+| `sa_schedule` | 自主领活：cron / everySeconds / at 三种模式登记任务；`list` 回传每行读时状态（health/group/nextFireAt/reason）与分组 summary |
 | `sa_learn` | 手动/从某次 run 蒸馏经验进 playbook |
 | `sa_health` | 健康板（scheduler/runner/sessionController/pause）+ 全局暂停/恢复调度 |
 

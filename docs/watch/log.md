@@ -776,3 +776,77 @@ web 检索仍是 11-20 那批三方报道与壳包（[央广](http://news.cnr.cn
 - **是否升级到 0.2.2-rc.5**：待人工决定（红线：不改 DSH 安装目录）。
 - 遗留：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时仍 `return true` 且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+
+---
+
+## 2026-11-22 · 上游连发 0.2.3-alpha.1/.2（含插件破坏性迁移）；移植 LobeHub #23661 调度读时状态
+
+**结论**：有更新，已实现并推送 `a0b531e`（调度读时状态，测试 45→50 全绿，改动 299 行）。
+上游今日连发两个预制版，其中 alpha.1 含**针对插件的破坏性迁移**，已写入 `upgradeWatchlist` 待人工。
+
+### 一、五路读数（本轮不再全冻结）
+
+| 信号 | 本次读数 | 与基线 |
+| --- | --- | --- |
+| 本机 `dsh --version` | `0.2.1-rc.2` | 相等（红线：不升级） |
+| GitHub releases 首项 | `dsh-v0.2.3-alpha.2` · 2026-11-22T11:00:39Z（次项 `alpha.1` 11-22T03:19:36Z，第三项 `rc.5` 11-18T12:51:39Z） | **变化** |
+| npm dist-tags | latest=`0.2.2-rc.5` / next=`0.2.2-rc.5` / alpha=`0.2.3-alpha.2`；registry 时间 alpha.1=11-22T03:45:26.697Z、alpha.2=11-22T09:57:12.419Z，rc.5 仍 11-18T13:17:23.604Z（未重发） | **变化** |
+| 12 个跟踪包源码 mtime（pruned） | 仍 2026-10-21T02:12Z 批，逐项与基线相等；包总数 305 | 相等（本机未升级，源码不随 release 变） |
+| 原型 repo `dsh-superagent-prototype` | 首项仍 `8c32a9dc5d72` · 2026-10-31T12:05:39Z | 相等 |
+
+web 检索本次命中真实上游动态：[newreleases alpha.1](https://newreleases.io/project/github/deepseek-ai/deepseek-harness/release/dsh-v0.2.3-alpha.1)、
+[newreleases alpha.2](https://newreleases.io/project/github/deepseek-ai/deepseek-harness/release/dsh-v0.2.3-alpha.2)、
+[掘金 0.2.3 拆解](https://juejin.cn/post/7710655550249779227)、[新浪 0.2.3 更新](https://sina.cn/news/detail/5368098852967346.html)；
+另见三方生态壳包（`oxmumu3/dsh-superagent`、`@baymaxhit/dsh-superagent`、`deepsleepzzz0211/dsh-superagent-windows`），无 rc.5 之后与本插件相关的新能力。
+
+### 二、上游评估：新功能无对应对象，破坏性迁移留待人工
+
+- **alpha.2**：仅把 Node 要求抬到 24.22.3（24.x）/26.13.1+。本机 `node v24.21.0` **低于门槛**——即使升级宿主也要先升 Node。
+- **alpha.1 新功能**：插件市场 Git 仓库来源、实验性时间线插件、代码审阅页与插件扩展、会话状态区、会话已读未读、Web 远程登录、
+  连接器（Linear/Notion/腾讯文档/飞书/企业微信/腾讯会议/钉钉）与 MCP OAuth、Office 技能统一等。全在宿主 UI/连接器/授权层，
+  本插件（宿主工具插件，持 agent 卡 + run + schedule 台账）**无对应对象**，不可移植。
+- **alpha.1 破坏性迁移（对本插件有影响，但不属"可移植能力"）**：移除会话 cwd 委派参数与 `working_directory`；
+  会话状态迁到新包 `dsh-client-ui-session-status`（读取方需在 `inject` 声明）；Cordis 核心同步 4.0.0-rc.12；
+  模型/搜索/抓取统一走 `ctx.deepseekAuth`；`list_agents` 结构化结果改 `agents` 字段。
+  其中第一条直接命中本插件：`sa_run`/`sa_agent` 的 `cwd` 与 runner 的 `sessionController.create({ cwd })` 都依赖它。
+  这些只能在**跟随宿主升级时**做，且在本机 0.2.1-rc.2 上抢跑适配会直接跑不起来，故一律写进
+  `state.json → dsh.upstream.upgradeWatchlist` 留待人工，本轮不改代码。
+
+### 三、LobeHub 43 个提交：六簇，唯一可移植项落地
+
+区间 `30986136de`(11-21T17:09:02Z) → `e57ac79e1f`(11-22T17:59:36Z)，`since=…&per_page=100` 一次覆盖（44 行含基线首项自身，故新增 43）。
+按"本插件有无对应对象"分簇：
+
+- **①②③④⑤** channel/审批/错误卡、workspace/可见性/oidc/sdk、宿主 UI、提示词与模型路由、外部 Agent(WSL/CLI)：均无对应对象（详见 `lobehub.note`）。
+  - 其中 `938fe4d416`「delete impact 与级联按 agent_id 收敛」专门核对过：本插件 `agentDeleteImpact` 本就按 `r.agentId`/`s.agentId` 精确匹配，已满足，不改。
+- **⑥ ✅ 可移植**：`e7474360fa` #23661「show scheduled tasks as a schedule table grouped by health」+ `2d4d59bd1b` #23622。
+  上游把定时任务表按"需要处理 / 运行中 / 已排期"分区，health 由 `resolveScheduleState` 读时算出、不落盘。
+
+### 四、实现：调度读时状态（`a0b531e`）
+
+旧 `sa_schedule list` 原样回传各行：目标 agent 被停用/删除后行看上去完全健康，实际每 tick 都被拒；
+一次性已消费的行仍读作"已排期"；本调度派出的 Run 在飞也看不出来——使用者唯一要问的
+"下次会不会触发/不会为什么"在输出里没有位置。
+
+- `scheduleState` / `scheduleOverview`：纯函数、读时计算、不落盘。每行附
+  `state {health, group, nextFireAt, liveRuns, reason}` 与分组 `summary`
+  （`attention`/`running`/`scheduled`/`inactive`）。判定顺序：`done` → `disabled` → `blocked` →
+  `running` → `skipped` → `unknown` → `scheduled`。
+- `nextFireAt` 只在会自己触发时给出（`done/disabled/blocked` 为 `null` 是规则，不是缺值）；
+  `nextCronOccurrence` 用"整小时门控"推进（年频 cron 约 8.8k 次探测，而非 527k 分钟）。
+- 调度派工落 `scheduleId`，在飞 Run 可归因（手工/反思 Run 为空，旧行为"未知归属"不猜）。
+- 面板 route `/api/dsh-super-agents/state` 返回同一份状态，调度卡片显示 health + 下次触发：工具与面板不允许各算一遍。
+- `zonedParts` 按时区缓存 `Intl.DateTimeFormat`（构造开销约为格式化的 20 倍，且 tick 与 next-fire 探测都走它）。
+
+测试固定流程（/tmp 副本，仓库内不建 `node_modules`）：`node --test test/unit.test.js` **50/50 pass**（45→50，新增 5 例）；
+`node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+改动合计 299 行（+288 −11），在 300 行红线内。
+
+### 五、待人工 / 遗留
+
+- **升级路径成为迁移任务**（新增，最重要）：宿主 0.2.3-alpha.1 移除了会话 cwd 委派参数、会话状态换包、
+  Cordis 升 4.0.0-rc.12、模型/搜索走 `ctx.deepseekAuth`；alpha.2 要求 Node ≥24.22.3（本机 v24.21.0）。
+  清单见 `state.json → dsh.upstream.upgradeWatchlist`，本轮不动代码。
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：待人工决定（红线：不改 DSH 安装目录）。
+- 遗留：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时仍 `return true` 且不给信号；正常路径不可达，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。

@@ -850,3 +850,68 @@ web 检索本次命中真实上游动态：[newreleases alpha.1](https://newrele
 - **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：待人工决定（红线：不改 DSH 安装目录）。
 - 遗留：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时仍 `return true` 且不给信号；正常路径不可达，继续不动。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+
+## 2026-11-23 · 上游五路读数全冻结；LobeHub 79 提交六簇无可移植项（无改动轮）
+
+### 一、上游 DSH：无变化（五路读数）
+
+| 信号 | 读数 | 对基线 |
+| --- | --- | --- |
+| 本机 `dsh --version` | `0.2.1-rc.2` | 相等 |
+| GitHub releases（`per_page=3` 首项） | `dsh-v0.2.3-alpha.2` · 2026-11-22T11:00:39Z | 相等（无新发布） |
+| npm dist-tags | next/latest=`0.2.2-rc.5`、alpha=`0.2.3-alpha.2` | 相等 |
+| npm registry 时间戳 | rc.5 `11-18T13:17:23.604Z`、alpha.1 `11-22T03:45:26.697Z`、alpha.2 `11-22T09:57:12.419Z` | 逐项相等 ⇒ 既非新发布也非 promote |
+| 官方包源码 mtime | **全量 305 个包**逐包 pruned 采集，无一包晚于 2026-10-22；全局最新 `2026-10-21T02:12:22Z`（libreoffice-kit-wasm） | 冻结批未动 |
+| 原型 repo | `8c32a9dc5d72`（2026-10-31T12:05:39Z） | 无新提交 |
+
+本轮把包检查从"抽查 12 个跟踪包"升级为**全量 305 包扫描**：不再靠抽样推断，直接证明没有任何包
+的源码晚于基线冻结批。结论与抽查一致（本机未升级 ⇒ 包内容不随上游 release 变化）。
+
+### 二、Web 检索：无新资讯
+
+`DeepSeek Harness super agent` / `dsh plugin super agent deepseek` 两查询仅命中旧内容：
+11-02 央广「DeepSeek 发布 Super-agent 架构」、掘金/知乎的 10-31 理念解读、第三方生态包
+（TianzeLuo/dsh-super-agent、mindtheory/dsh-super-agents、npm `super-dsh`、`dsh-session-superagent`）。
+没有 alpha.2 之后的新 super agent 能力，也没有本插件相关的可移植资讯。
+
+### 三、LobeHub 79 个提交：六簇，无可移植项
+
+区间 `e57ac79e1f`(11-22T17:59:36Z) → `f7cb3f3e`(11-23T17:42:31Z)，
+`since=2026-11-22T17:59:36Z&per_page=100` 一次覆盖（80 行含基线首项自身，故新增 79）。
+
+- **① channel/群组 Agent 授权/附件 ThumbHash/分享卡/canvas/1:1/项目默认 Channel**（11 个）→ 本插件无 Channel 对象。
+- **② workspace RBAC/模型分层/昵称/OIDC/服务端安全**（8 个）→ 单用户本地插件无对应面；
+  安全类按红线只记录（`4ee4cbbf` 要求分享 id 走 CSPRNG，本插件 run/agent/schedule id 本就用 `randomUUID`，已满足）。
+- **③ 宿主 UI / 市场 Lobot 设计 / 侧栏 / 设置 / 样式**（26 个）→ 呈现层。
+- **④ 外部 Agent / CLI / 设备宿主**（8 个）→ 本插件不托管外部 Agent。
+- **⑤ 连接器 / MCP / Sandbox / 图片资源**（6 个，含 `f3d3e26f` 新增 175 个官方 MCP server）→ 无连接器/沙箱/图片库对象。
+- **⑥ 记忆 / 任务 / 主题 / 知识库**（7 个）→ 记忆属宿主产品；本插件「经验」是 playbook 文本，无冲突。
+
+**两项专门核对（防止标题误导误判为可移植）：**
+
+1. `9df9d682` #23683「render cron weekday ranges correctly」：上游的洞在选择器一侧
+   （`cronPattern.split(' ')` 单空格拆分、周名与 `6-7` 别名回显）。本插件 `parseCron` 早已用 `/\\s+/` 拆分，
+   `cronField` 对 `a-b/n`、`7→0` 别名、逗号列表均正确（`30 9 * * 6-7` → `{0,6}`、`1-5/2` → `{1,3,5}`），
+   且工具契约明示只支持数字周（不支持 `MON-FRI`）⇒ 无可移植洞，不为对齐上游而扩契约。
+2. `dce3ec5a`「stop redundant client polling」：实际 diff 是桌面端**设备架构回填**去重
+   （每次 device-info 读取都重下整个设备列表），与本插件面板 5s 轮询无关；标题易误导，不移植。
+
+**结论**：79 个提交无可移植项。「上游有就搬」不是准入判据。
+
+### 四、行动：本轮无代码改动
+
+- 基线测试在 /tmp 副本复跑：`node --test test/unit.test.js` **50/50 pass**；
+  `node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+  作为下次改动前的对照（本轮不动代码，故测试数不变）。
+- 只更新 `state.json` 与本节日志，一并做为基线 chore 提交。
+
+### 五、待人工 / 遗留
+
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：仍待人工（红线：不改 DSH 安装目录）；
+  迁移清单见 `state.json → dsh.upstream.upgradeWatchlist`（会话 cwd 委派参数移除、会话状态新包、
+  Cordis 4.0.0-rc.12、`ctx.deepseekAuth`、Node ≥24.22.3 而本机 v24.21.0）。
+- **新增遗留（对读 #23727 后记录，不实现）**：面板 `removeAgent` 无 in-flight 锁，连点会发两次删除请求；
+  单用户本地面板、第二次失败只显示错误，不构成"永久转圈"；`client.js` 无测试，改动收益低。
+- **沿用遗留**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时仍 `return true`
+  且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
+- `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。

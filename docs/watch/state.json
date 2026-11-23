@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "description": "Frontier watcher baseline. Read at the start of every run; diff sources against these values, then update before exit.",
-  "checkedAt": "2026-11-22T13:05:00-05:00",
+  "checkedAt": "2026-11-23T13:02:15-05:00",
   "repo": {
     "path": "/home/canetwork/dsh/dsh-super-agents",
-    "head": "a0b531e",
+    "head": "d5240b6",
     "version": "0.1.0",
-    "headNote": "本轮有功能提交 a0b531e（调度读时状态），承载本基线的 chore 提交紧随其后，基线提交后 head 为 chore。"
+    "headNote": "本轮无功能提交；本次只更新基线，chore 提交紧随，head 记录为改动前的 d5240b6。"
   },
   "dsh": {
     "version": "0.2.1-rc.2",
@@ -19,9 +19,9 @@
       "npmPackageNote": "2026-11-12 口径修正：`npm view dsh version` 返回 1.0.1 是 2016 年的同名无关包（infusion/node-dsh），不能作为 DSH 版本信号；必须查 scoped 包 @deepseek-ai/dsh。属测量口径修正，不是上游变更。",
       "latestReleaseTag": "dsh-v0.2.3-alpha.2",
       "latestReleaseAt": "2026-11-22T11:00:39Z",
-      "releaseChanged": true,
-      "releaseCheckedAt": "2026-11-22T13:05:00-05:00",
-      "releaseCheckNote": "2026-11-22 上游连发两个预制版：dsh-v0.2.3-alpha.1（2026-11-22T03:19:36Z，大型功能+破坏性迁移）与 dsh-v0.2.3-alpha.2（2026-11-22T11:00:39Z，仅 Node 版本要求 24.22.3/26.13.1）。releases?per_page=3 首项由 rc.5 换为 alpha.2。",
+      "releaseChanged": false,
+      "releaseCheckedAt": "2026-11-23T13:02:15-05:00",
+      "releaseCheckNote": "2026-11-23 releases?per_page=3 首项仍是 dsh-v0.2.3-alpha.2（11-22T11:00:39Z），次项 alpha.1（03:19:36Z）、第三项 rc.5（11-18T12:51:39Z），无新发布；npm registry dist-tags next/latest=0.2.2-rc.5、alpha=0.2.3-alpha.2，registry 时间戳（rc.5 2026-11-18T13:17:23.604Z、alpha.1 2026-11-22T03:45:26.697Z、alpha.2 2026-11-22T09:57:12.419Z）与基线逐项一致 ⇒ 既非新发布也非本次 promote。",
       "npmDistTagLatest": "0.2.2-rc.5",
       "upgradeAvailable": true,
       "headlineChanges": [
@@ -31,7 +31,7 @@
         "（rc.5，已于 2026-11-18 记录）DeepSeek 模型改用服务端搜索；其他模型默认 DeepSeek Search API",
         "（rc.4/rc.3/rc.2，已分别记录）模型异常响应处理、会话导入插件、SubAgent 具名多层协作"
       ],
-      "note": "本机 0.2.1-rc.2 低于上游最新预制版 0.2.3-alpha.2。升级需人工决定（红线：不改 DSH 安装目录），且 alpha.1 含针对插件的破坏性迁移（会话 cwd 委派参数移除、会话状态新包、Cordis 4.0.0-rc.12、ctx.deepseekAuth），本插件在这些点上未适配，升级不是\"换个版本号\"而是迁移任务；alpha.2 还把 Node 门槛抬到 24.22.3（本机 v24.21.0）。2026-11-22 五路读数：本机 dsh --version 0.2.1-rc.2；GitHub releases?per_page=3 首项 dsh-v0.2.3-alpha.2（11-22T11:00:39Z），次项 alpha.1（11-22T03:19:36Z），第三项 rc.5（11-18T12:51:39Z）；npm registry dist-tags next=0.2.2-rc.5 / latest=0.2.2-rc.5 / alpha=0.2.3-alpha.2（alpha.1 registry 时间 2026-11-22T03:45:26.697Z、alpha.2 2026-11-22T09:57:12.419Z，rc.5 仍 11-18T13:17:23.604Z 未变）；12 个跟踪包源码 mtime 逐项与基线完全相等（仍 2026-10-21T02:12Z 批，包总数 305——本机未升级，包内容不随上游 release 变化）；原型 repo 无新提交。可移植性判定：alpha.1 的新功能全在宿主 UI/连接器/检索授权层，本插件无对应对象；破坏性迁移属\"跟着宿主升级才能做\"的适配，不是可移植能力，且在本机 0.2.1-rc.2 上适配会直接跑不起来，故一律写进 upgradeWatchlist 留待人工。",
+      "note": "本机 0.2.1-rc.2 低于上游最新预制版 0.2.3-alpha.2。升级需人工决定（红线：不改 DSH 安装目录）：alpha.1 含针对插件的破坏性迁移（会话 cwd 委派参数移除、会话状态新包 dsh-client-ui-session-status、Cordis 4.0.0-rc.12、ctx.deepseekAuth），alpha.2 把 Node 门槛抬到 24.22.3/26.13.1（本机 v24.21.0），迁移清单见 upgradeWatchlist。2026-11-23 五路读数：本机 dsh --version 0.2.1-rc.2；GitHub releases 三项与 npm 三个 dist-tag 时间戳全未变（见 releaseCheckNote）；全量扫描本机 @deepseek-ai 下 305 个包的源码 mtime，无一包晚于 2026-10-22，全局最新仍是 2026-10-21T02:12:22Z（libreoffice-kit-wasm），即本机包内容与基线逐项相等（未升级则包不变）；原型 repo 仍停在 8c32a9dc5d72。可移植性判定沿用 11-22：alpha 的新能力全在宿主 UI/连接器/检索授权层，本插件无对应对象，破坏性迁移不在 0.2.1-rc.2 上抢跑。",
       "npmDistTagNext": "0.2.2-rc.5",
       "npmQueryMethodNote": "2026-11-13：本机 `npm view` 因 ~/.npm 缓存含 root 属主文件报 EACCES，改用 registry HTTP 直接读 dist-tags（https://registry.npmjs.org/@deepseek-ai%2Fdsh）：latest=0.2.2-rc.5（2026-11-18，11-19 由 rc.1 提升）、next=0.2.2-rc.5（2026-11-18）、alpha=0.2.2-alpha.3（2026-11-03）。",
       "npmDistTagAlpha": "0.2.3-alpha.2",
@@ -117,10 +117,10 @@
         "latestFile": "dsh-experimental-agent-team/README.i18n.yaml"
       }
     },
-    "checkedAt": "2026-11-22T13:05:00-05:00",
+    "checkedAt": "2026-11-23T13:02:15-05:00",
     "sampleNote": "2026-11-20 复核 13 个关注包（tracked 6 + resolvedTracked 5 + dsh-agent-loop/dsh-workflow/dsh-llm-retry/dsh-persona 抽样），源码 mtime 与基线逐项相等（pruned 采集，全部仍是 2026-10-21T02:12Z 批），无个别包更新。本机未升级，故包内容不随上游 release 变化。",
-    "lastVerifiedAt": "2026-11-22T13:05:00-05:00",
-    "lastVerifyNote": "2026-11-22 pruned 采集 12 个跟踪包（dsh-base/dsh-schedule/dsh-agent/dsh-skill/dsh-goal/dsh-tool-goal/dsh-subagent/dsh-tool-subagent/dsh-subagent-fork-in-process/dsh-subagent-spawn-in-process/dsh-tool-subagent-control/dsh-goal-round-driver），mtime 逐项与基线完全相等（仍是 2026-10-21T02:12Z 批）；包总数仍 305。上游虽连发两个 alpha，本机未升级，故源码不变。"
+    "lastVerifiedAt": "2026-11-23T13:02:15-05:00",
+    "lastVerifyNote": "2026-11-23 全量扫描（不再只抽查 12 个跟踪包）：baseDir 下 305 个包逐包 pruned 采集源码 mtime，晚于 2026-10-22 的包数 = 0；全局最新 mtime = 2026-10-21T02:12:22Z（libreoffice-kit-wasm），仍是同一冻结批；tracked 4 个现存包 + resolvedTracked 5 个单数包逐项与基线相等；包总数 305 未变。"
   },
   "prototypeRepo": {
     "repo": "deepseek-ai/dsh-superagent-prototype",
@@ -129,31 +129,31 @@
     "message": "feat: add the dsh-superagent research prototype",
     "pushedAt": "2026-11-03T09:29:14Z",
     "changed": false,
-    "note": "上游原型 repo 仍无新提交（commits?per_page=3 首项仍是 8c32a9dc5d72，author date 2026-10-31T12:05:39Z）；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。2026-11-22 复查未变。",
-    "checkedAt": "2026-11-22T13:05:00-05:00"
+    "note": "上游原型 repo 仍无新提交（commits?per_page=2 首项仍是 8c32a9dc5d72，author date 2026-10-31T12:05:39Z）；本地 /home/canetwork/dsh/prototype-research 为分析用副本（无 .git），不作为变更信号。2026-11-23 复查未变。",
+    "checkedAt": "2026-11-23T13:02:15-05:00"
   },
   "lobehub": {
     "repo": "lobehub/lobehub",
     "api": "https://api.github.com/repos/lobehub/lobehub/commits?since=<prevHead date>&per_page=100",
-    "sha": "e57ac79e1f",
-    "commitDate": "2026-11-22T17:59:36Z",
-    "message": "✨ feat(hetero-agents): find and run agents installed in WSL; Windows install paths for Cursor and dsh (#23670)",
-    "previousSha": "30986136de",
+    "sha": "f7cb3f3e1d",
+    "commitDate": "2026-11-23T17:42:31Z",
+    "message": "🔒 fix(openapi): enforce workspace RBAC on POST /responses (#23688)",
+    "previousSha": "e57ac79e1f",
     "fetchFailed": false,
-    "note": "2026-11-22 评估 30986136de 之后 43 个提交（since=2026-11-21T17:09:02Z&per_page=100，API 正常，44 行含基线首项自身，故新增 43）。按\"本插件有无对应对象\"分簇：① channel/mute/审批/错误卡/队列合并（852b4e397e/ddc72964fb/09a8dea486/b03764a3fe/19884184ec/ed5f42c00b/ec238133ad/1c4eae14d9/979a931094/b2ee8d5761）→ 本插件无 Channel/Thread 对象；② workspace/可见性/共享/账户/oidc/vault（fb17b58f63/a4952a0429/865a3d2d59/f09018061e/263d9059c7/f2127c0fd5/0ec5b27c1f/737d68659b/dc7b20e710）→ 多用户与 SDK 面，本插件无对应对象；③ 宿主 UI/设置/样式/输入框/附件/artboard（4df1f01a61/9f80e88a86/d11037974a/c30ba13c3f/718c46e7cc/236e7c8a25/bece188334/a01f830cd7）→ 呈现层；④ 提示词/工具装配/模型路由（c45b8e68c9/f2c2e4c880/573b57d8d8/ab21e0df0d/156965a0cf/eb91a0930e/e725ac0619）→ 宿主提示词与装配层；⑤ 外部 Agent/WSL/CLI 检测（e57ac79e1f/7e89e67daa/c1e789dc80/938fe4d416）→ 本插件不托管外部 Agent；其中 938fe4d416「delete impact 按 agent_id 收敛」已核对：本插件 agentDeleteImpact 本就按 r.agentId/s.agentId 精确匹配，无需改动；⑥ ✅ 命中唯一可移植项 e7474360fa #23661「scheduled tasks as a schedule table grouped by health」+ 2d4d59bd1b #23622（定时任务表按 health 分区，health 由 resolveScheduleState 读时算出）→ 已实现为 scheduleState/scheduleOverview（见 processed[schedule-state]）。下轮起 ①②③④⑤ 五簇可直接跳过。",
-    "commitCountSinceBaseline": 43
+    "note": "2026-11-23 评估 e57ac79e1f 之后 79 个提交（since=2026-11-22T17:59:36Z&per_page=100，API 正常，80 行含基线首项自身，故新增 79）。按「本插件有无对应对象」分簇：① channel/群组 Agent 授权/附件 ThumbHash/分享卡/canvas/1:1/项目默认 Channel（7935f744/c27f5422/a5e652d0/53811d87/8da1eb10/9cab3b1a/6d1b24e2/a417193f/68994288/4c855b0f/aae96901）→ 无 Channel 对象；② workspace RBAC/模型分层/昵称/OIDC/服务端安全（f7cb3f3e/39e8a1df/d504c14d/c9af24fc/f44156f3/2e4589b7/c64add96/4ee4cbbf）→ 单用户本地插件无对应面；安全类按红线只记录（4ee4cbbf 要求分享 id 用 CSPRNG，本插件 run/agent/schedule id 本就走 randomUUID）；③ 宿主 UI/市场 Lobot 设计/侧栏/设置/样式（4fb98730/bd28095d/474865d3/5013f045/a30f5b8a/4014db20/7ba95dd6/517903e8/a32a960f/40ef24ad/dc82da24/58983a12/ad75bf22/c6a9e5fa/96ada814/519c797c/358203cc/415cc045/b6bc7cb3/2cd51110/18ff6aea/e04d50f5/90fd993b/ffc5c883/df959471/5a7eac4e）→ 呈现层；④ 外部 Agent/CLI/设备宿主（16618b15/12d3156b/d82e6d2c/29b34e86/2d5beaa2/40a0319f/c6e04970/d60d089f）→ 本插件不托管外部 Agent；⑤ 连接器/MCP/Sandbox/图片资源（f3d3e26f 175 个官方 MCP、b804117f、e2c70b2e、2d1bf9b3、4236ba93、7e1df88e）→ 无连接器/沙箱/图片库对象；⑥ 记忆/任务/主题/知识库（1f655dc9/f00885f6/6a07151f/edd8ff3b/412cf3d6/f31fd954/9df9d682）→ 记忆属宿主产品，本插件「经验」是 playbook 文本，无冲突。两项专门核对防误判：9df9d682 #23683「cron 周区间渲染」上游洞在选择器侧（单空格拆分、周名与 6-7 回显），本插件 parseCron 已用 /\\s+/、cronField 对 a-b/n 与 7→0 别名正确（6-7→{0,6}、1-5/2→{1,3,5}）且明示不支持周名，无可移植洞；dce3ec5a「stop redundant client polling」实际 diff 是桌面端设备架构回填去重，与本插件面板 5s 轮询无关（标题易误导）。结论：79 个提交无可移植项。",
+    "commitCountSinceBaseline": 79
   },
   "web": {
-    "lastQuery": "DeepSeek Harness super agent | dsh-superagent-prototype update | DeepSeek Harness release 2026 dsh 0.2.3-alpha",
-    "lastResultNote": "2026-11-22 检索命中本轮上游动态：newreleases.io 的 dsh-v0.2.3-alpha.1 / alpha.2 条目、[稀土掘金 0.2.3 拆解](https://juejin.cn/post/7710655550249779227)（9 项新功能 + 一长串破坏性迁移）、[新浪 0.2.3 更新](https://sina.cn/news/detail/5368098852967346.html)（Agent 任务时间线、代码审查）；另有三方生态包 oxmumu3/dsh-superagent、@baymaxhit/dsh-superagent、deepsleepzzz0211/dsh-superagent-windows，原型 repo 页面仍停在 8c32a9dc5d72。无 rc.5 之后与本插件相关的新可移植能力。",
-    "checkedAt": "2026-11-22T13:05:00-05:00"
+    "lastQuery": "DeepSeek Harness super agent | dsh plugin super agent deepseek",
+    "lastResultNote": "2026-11-23 检索：仅命中旧内容（11-02 央广「DeepSeek 发布 Super-agent 架构」、掘金/知乎的 10-31 理念解读、第三方生态包 TianzeLuo/dsh-super-agent、mindtheory/dsh-super-agents、npm super-dsh / dsh-session-superagent），无 alpha.2 之后的新 super agent 能力或本插件相关可移植资讯；未出现新的官方文档/博客入口。",
+    "checkedAt": "2026-11-23T13:02:15-05:00"
   },
   "testBaseline": {
     "unit": "50/50 pass",
     "smoke": "SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully",
     "allGreen": true,
-    "note": "测试在 /tmp 副本执行（cp -r 仓库 → ln -sfn <dsh install>/node_modules → node --test / smoke → 仓库目录内不建 node_modules）。本轮新增 5 例（next fire 逐分钟/逐小时推进、blocked 判定、running/done/skipped 区分、分组计数守恒、调度派工落 scheduleId）：unit 45→50 全绿，smoke 不变。",
-    "checkedAt": "2026-11-22T13:05:00-05:00"
+    "note": "本轮无代码改动，基线测试在 /tmp 副本复跑（cp -r 仓库 → ln -sfn <dsh install>/node_modules → node --test / smoke → 仓库目录内不建 node_modules）：unit 50/50 全绿、smoke 输出不变，作为下次改动前的对照基线。",
+    "checkedAt": "2026-11-23T13:02:15-05:00"
   },
   "processed": [
     {
@@ -379,6 +379,20 @@
       "title": "调度读时状态：sa_schedule list 与面板 route 共用 scheduleState/scheduleOverview（health/group/nextFireAt/liveRuns/reason + summary），Run 落 scheduleId 归因",
       "action": "implemented（纯函数读时不落盘 + nextCronOccurrence 整小时门控 + Intl formatter 按时区缓存 + 面板状态列 + README/001/003/SKILL 文档 + 测试 5 例，45→50 全绿，改动 299 行）",
       "commit": "a0b531e"
+    },
+    {
+      "date": "2026-11-23",
+      "id": "upstream-recheck-1123",
+      "title": "复查上游五路读数：本机 dsh 0.2.1-rc.2、GitHub releases 首项仍 alpha.2(11-22T11:00:39Z)、npm dist-tags 与 registry 时间戳未变、305 个包全量 mtime 无一晚于 10-22、原型 repo 8c32a9dc5d72 无新提交",
+      "action": "no-action（无新发布、无 promote、本机包冻结；升级仍待人工，见 upgradeWatchlist）",
+      "commit": null
+    },
+    {
+      "date": "2026-11-23",
+      "id": "lobehub-review-79",
+      "title": "评估 LobeHub e57ac79e1f 之后 79 个提交（六簇 + 两项专门核对 #23683 cron 周区间、dce3ec5a 客户端轮询）",
+      "action": "no-action（无对应对象；#23683 核对为本插件 cron 解析已正确、且契约不支持周名；dce3ec5a 实际为桌面端设备回填，与本插件无关）",
+      "commit": null
     }
   ]
 }

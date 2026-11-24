@@ -915,3 +915,78 @@ web 检索本次命中真实上游动态：[newreleases alpha.1](https://newrele
 - **沿用遗留**：`scheduler.fire()` 里 `runner.makeRun()` 返回 `null`（同 id 行已存在）时仍 `return true`
   且不给信号；正常路径不可达，改动会动幂等语义，继续不动。
 - `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致，沿用红线不自动改。
+
+---
+
+## 2026-11-24 · 上游五路读数 alpha.2 后连续第二次全冻结；LobeHub 45 提交无对应对象（无改动轮）
+
+### 一、上游 DSH：无变化（五路读数）
+
+| 信号 | 读数 | 对基线 |
+| --- | --- | --- |
+| 本机 `dsh --version` | `0.2.1-rc.2` | 相等 |
+| GitHub releases（`per_page=3` 首项） | `dsh-v0.2.3-alpha.2` · 2026-11-22T11:00:39Z | 相等（无新发布） |
+| npm dist-tags | next/latest=`0.2.2-rc.5`、alpha=`0.2.3-alpha.2` | 相等 |
+| npm registry 时间戳 | rc.5 `11-18T13:17:23.604Z`、alpha.1 `11-22T03:45:26.697Z`、alpha.2 `11-22T09:57:12.419Z` | 逐项相等 ⇒ 既非新发布也非 promote |
+| 官方包源码 mtime | 全量扫描 `@deepseek-ai` 目录：无一包晚于 2026-10-22，全局最新 `2026-10-21T02:12:22Z`（libreoffice-kit-wasm） | 冻结批未动 |
+| 原型 repo | `8c32a9dc5d72`（2026-10-31T12:06:31Z） | 无新提交 |
+
+**计数口径澄清（属测量修正，不是上游变更）**：基线 `packageCount: 305` 实为 baseDir 下**全部目录条目数**，
+其中 `dsh-*` 前缀 **294 个**，另有 11 个非 `dsh-*` 依赖包
+（`cordis`、`cordis-plugin-{group,include,loader,timer}`、`cosmokit`、`libreoffice-kit`、`libreoffice-kit-wasm`、
+`node-addon-system`、`node-addon-system-linux-x64`）。本轮 `find -maxdepth 1 -name 'dsh-*' | wc -l` = 294，
+条目总数 305 未变；tracked 4 个现存包（dsh-base/-schedule/-agent/-skill）+ resolvedTracked 5 个单数包
+（dsh-goal/-tool-goal/-subagent/-tool-subagent/-experimental-agent-team）逐项 mtime 与基线**完全相等**。
+
+### 二、Web 检索：无新资讯
+
+`DeepSeek Harness super agent` / `dsh plugin super agent deepseek` 两查询仍只命中 10-31～11-02 的旧内容
+（11-02 央广「Super-agent 架构」、阿里云/知乎/百家号解读、第三方生态包 TianzeLuo/dsh-super-agent、
+mindtheory/dsh-super-agents、npm `super-dsh`）。alpha.2 之后没有新的官方 super agent 能力公告，
+也没有与本插件相关的可移植资讯。
+
+### 三、LobeHub 45 个提交：六簇，无可移植项
+
+区间 `f7cb3f3e1d`(11-23T17:42:31Z) → `6dbaf19918`(11-24T17:57:04Z)，
+`since=2026-11-23T17:42:31Z&per_page=100` 一次覆盖（46 行含基线首项自身，故新增 45）。
+
+- **① Channel / 消息反应 / 附件 / 共享卡**（`6dbaf19918`/`f81a94e23a`/`22aa85f764`/`c35647e236`/`cf20ca9970`/`54e2378822` 等 7 个）→ 本插件无 Channel 对象。
+- **② Agent settings 归并 / 侧栏推荐 / 设备选择 / 项目执行环境排序**（`e5fd2e7d3e`/`a45026113e`/`952c850646`/`fadcba625a`/`5991f8c771`/`de9b0bd4a4` 等 11 个）→ 宿主/产品呈现层。
+- **③ 市场 / Skills 目录 / 设置分栏 / 搜索 / 样式**（`dbc5dfdb61`/`6d0626aeb2`/`825c405526`/`a1fca3ef94`/`3659778080`/`cdea6472cf` 等 16 个）→ 呈现层。
+- **④ 外部 Agent（CLI connect / ACP / Antigravity / Codex 额度）**（`7c10840d8a`/`75f054efcc`/`4be931285b`/`2abd2692a1`/`f604751aa8`/`e54d6e87b9` 等 6 个）→ 本插件不托管外部 Agent。
+- **⑤ 安全**（`3bf7170d71` hetero 设备运行以调用者身份、`bb24dc2c0e` 分享链接设备访问）→ 单用户本地插件无对应面，按红线只记录。
+- **⑥ 构建 / 发版 / 依赖锁定 / merge**（`061f4d9fa3`/`89a4c2d35f`/`be883e89cd`/`1177187a9b`/`abbb942067` 等 8 个）→ 与本插件无关。
+
+**三项专门核对（标题像"运行生命周期"，读完 diff 后判不移植）：**
+
+1. `2236091872` #23785「expire runs parked on an unanswered card after 24h」：
+   diff 是 `ParkedInterventionExpiry.ts`（新增 319 行）+ `migrations/0229_agent_operations_waiting_for_human_index.sql`
+   + `opportunisticSweep.ts`，即"在 DB 里筛 `waiting_for_human` 的 agent_operations、24h 过期作废"。
+   本插件运行队列是 JSON journal（`saveJson` 原子写），状态机 `queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled`
+   里没有"等人类卡"这一停驻态——`sa_run` 从不中途等输入（`sa_say` 是纠偏，不是卡）。
+   同一诉求的本地版本（崩溃/会话消失的运行如何收尾）已在 11-19 的 `eeddb7d`「settle a run whose session vanished」落地
+   ⇒ 本轮没有新缺口，DB + 24h 定时器不搬。
+2. `a52ae3ab50` #23758「bound memory searches per operation so a rephrasing loop stops」：
+   diff 为 `toolCallRepeatGuard.ts`(+70) 给每次 operation 的工具调用加预算、`GeneralChatAgent`/`callLlmFinalizer` 接线。
+   工具调用循环属宿主 agent-runtime，本插件只负责建会话/派活/回收产物，没有自己的 tool loop ⇒ 不可移植。
+3. `88a88dbb07` #23771「defer the skill APIs of lobe-skills when no skills are available」：
+   diff 为 `deferUnusedSkillsTool.ts`（新增 98 行）+ pipeline `operationPrep` 改 38 行，属宿主侧"无技能时不挂技能工具"的延迟挂载。
+   本插件 `ctx.inject(["skills"])` 只读技能清单供 `skills` 字段展示，工具表由宿主注入 ⇒ 无可移植点。
+
+**结论**：45 个提交无可移植项。alpha.2 发版后连续两轮"上游冻结、LobeHub 全是产品层"，本轮仍不为了有改动而改动。
+
+### 四、行动：本轮无代码改动
+
+- 基线测试在 /tmp 副本复跑（`cp -r` 仓库 → `ln -sfn <dsh>/node_modules` → 在 /tmp 内执行，仓库目录不建 node_modules）：
+  `node --test test/unit.test.js` → **50/50 pass**（fail 0）；
+  `node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+- 只更新 `state.json` 与本节日志，作为基线 chore 提交推送。
+
+### 五、待人工 / 遗留（沿用）
+
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：仍待人工（红线：不改 DSH 安装目录）；迁移清单见
+  `state.json → dsh.upstream.upgradeWatchlist`（会话 cwd 委派参数移除、会话状态新包 `dsh-client-ui-session-status`、
+  Cordis 4.0.0-rc.12、`ctx.deepseekAuth`、Node ≥24.22.3 而本机 v24.21.0）。
+- **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
+  `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
+  `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。

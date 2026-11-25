@@ -990,3 +990,81 @@ mindtheory/dsh-super-agents、npm `super-dsh`）。alpha.2 之后没有新的官
 - **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
   `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
   `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。
+
+---
+
+## 2026-11-25 · 上游第三轮全冻结；LobeHub 45 提交无同构对象（无代码改动）
+
+**结论**：无更新可落地——五路读数全冻结，LobeHub 45 个提交无可移植项。本轮只更新基线 + 补强一处度量口径。
+
+### 一、上游五路读数：alpha.2 后连续第三轮冻结
+
+| 源 | 读数 | 对比基线 |
+| --- | --- | --- |
+| `dsh --version` / `dsh/package.json` | `0.2.1-rc.2` | 相等 |
+| GitHub releases 前三 | `dsh-v0.2.3-alpha.2`(11-22T11:00:39Z) / `alpha.1`(03:19:36Z) / `rc.5`(11-18T12:51:39Z) | 相等，无新发布 |
+| npm dist-tags | `next`=`latest`=`0.2.2-rc.5`、`alpha`=`0.2.3-alpha.2` | 相等 |
+| npm registry `time` | rc.5 `2026-11-18T13:17:23.604Z`、alpha.1 `2026-11-22T03:45:26.697Z`、alpha.2 `2026-11-22T09:57:12.419Z`、`time.modified` `2026-11-22T09:57:12.602Z` | **逐项相等** ⇒ 既非新发布也非 promote |
+| 原型 repo | `8c32a9dc5d72`(2026-10-31T12:05:39Z) | 无新提交 |
+
+本机包：`find <baseDir> -maxdepth 1 -name 'dsh-*' | wc -l` = **294**（条目总数 305 未变）。
+`find ... -newermt 2026-10-22` 命中 **0** 个；全树最新 mtime 仍是 `2026-10-21T02:12:22.412Z`（`dsh-experimental-inspector`）。
+9 个关注包（tracked 4 + resolvedTracked 5）源码 mtime 与基线**逐项完全相等**。
+
+### 二、度量补强：新增全树 mtime 指纹（属测量修正，不是上游变更）
+
+此前"冻结"只有两类证据：9 个关注包逐项 mtime + 全树最新 mtime。**其余 285 个包没有任何基线**，
+若某个非关注包被替换而 mtime 仍落在同一批时间戳，是查不出来的。本轮补上可复现指纹：
+
+```
+find <baseDir> -maxdepth 1 -name 'dsh-*' -printf '%f %T@\n' | LC_ALL=C sort | sha256sum
+→ 5eaa8e86c696e814138154f40d8c1bc66618a57bc1d83f6f9697e8ba01ae7d7e   (294 项)
+```
+
+写入 `state.json → officialPackages.mtimeFingerprint`。下次运行只算一次 sha 即可判定全树是否变动。
+
+**一个口径陷阱（本轮踩到并已记入 state）**：目录 mtime 与包内最新文件 mtime **不是同一口径**，相差约 0.01–0.07s。
+按目录 mtime 去比 `tracked.mtime`（源码文件 mtime）会把 `dsh-base` 误判成 1792548722.1601968 → 1792548722.0921965 的"变更"。
+实际是同一份内容：源码 mtime 逐项全等。两套口径在 state 里刻意分开记录，不可互替。
+
+### 三、LobeHub 45 个提交：五簇对平 14+14+8+6+3=45，无可移植项
+
+区间 `6dbaf19918`(11-24T17:57:04Z) → `8991f18490`(11-25T17:21:37Z)，
+`since=2026-11-24T17:57:04Z&per_page=100` 一次覆盖（46 行含基线首项自身，故新增 45）。
+
+- **① Channel / 人-Agent 会话面 14 个**（`ef23d88422` 回复外发卡+webhook/Task 投递、`144b148a1a`、`ec79cab378` 追问窗口并入忙碌 Agent、`cddd48ae14` owner 设管理员、`73c69167a6` 向 owner 申请权限、`64122c3d7b`、`f836e33c6c`、`e9547267e9`、`edb130a46d`、`bf714ffb9b`、`a4dd02bb31`、`2faa457dec`、`fd84af1b9e`、`0267f709a5`）→ 本插件无 Channel/多用户会话对象。
+- **② 呈现 / 客户端 14 个**（`6ba2426df8` A2UI、`a26e92a1dd`、`880bbf948b`、`f63d19b067`、`208e17ebb8`、`8ba679ab95`、`39bd969d6f`、`99aedb144d`、`7c839d2d23`、`bc2ad9b66b`、`bb4a8330fd`、`8991f18490` 桌面端 `lh app`、`5653ab5444`、`fdf168a2bd`）→ 宿主 UI。
+- **③ 运行层性能 8 个**（`2416e679ce` #23860、`470fb40d7e` #23861、`c34deba6e3` #23820、`433c2a74b4` #23815、`bd3e4324a3` #23817、`7b1f91c015`、`85012f4b2a` #23826、`9554d0e85a`）→ 宿主 DB/Redis/暖轮缓存。
+- **④ 订阅 / 计费 / 通知 6 个**（`0aefcd0353`、`ead52145df`、`b3c3ead547`、`4bf19c24a2`、`5489db1143`、`6eec67357f`）→ 无计费面。
+- **⑤ 测试 / 构建 3 个**（`58a93517c7`、`1445003040`、`3c1b5b7eb1`）→ 无关。
+
+**四项专门核对（标题像调度/运行，读完 diff 才判）：**
+
+1. `433c2a74b4` #23815「snapshot available_skills + 暖轮注入 delta notes」：29 文件 +1493/−59，
+   新增 `skillIndex.ts`(+67)、`Redis/keys.ts`(+6)、`serverCallLlmContextBuilder.ts`(+68/−42)。是宿主把技能索引快照进
+   **Redis 暖轮上下文**、后续轮只注入差量。本插件每次 `sa_run` **新建独立会话**，无暖轮上下文缓存
+   ⇒ 既无对象也无收益，搬不动。
+2. `2416e679ce` #23860「stop writing the same tool output twice into plugin state」：17 文件全在
+   `builtin-tool-*` 与 `heterogeneous-agents` 适配器（codex/github 文档产物写 plugin state）。
+   本插件产物只落 result 文件一次，无 plugin state 双写 ⇒ 不可移植。
+3. `fdf168a2bd` #23791「split runners from environment」：新增 `projectRunners.ts`(+109) + locales，
+   是 LobeHub 执行环境（runners = 沙箱环境）拆分与表单对齐。与本插件 runner（DSH session controller 封装）
+   **同名不同物**，不能因为都叫 runner 就搬。
+4. `ec79cab378` #23836「merge follow-up-window requests into the busy Agent's next run」：diff 仅
+   `channel/merge.ts`(+5/−3) 与 DB repository 测试，是 Channel 追问窗口合并，属人-Agent 会话队列。
+
+### 四、行动：本轮无代码改动
+
+- 基线测试在 /tmp 副本复跑（`cp -r` 仓库 → `ln -sfn <dsh>/node_modules` → 在 /tmp 内执行，仓库目录不建 node_modules）：
+  `node --test test/unit.test.js` → **50/50 pass**（fail 0）；
+  `node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+- 只改 `state.json`（+ 新增指纹口径）与本节日志，作为基线 chore 提交推送。单次改动 47+/19− 量级，远低于 300 行红线。
+
+### 五、待人工 / 遗留（沿用，无新增）
+
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：仍待人工（红线：不改 DSH 安装目录）；迁移清单见
+  `state.json → dsh.upstream.upgradeWatchlist`（会话 cwd 委派参数移除、会话状态新包 `dsh-client-ui-session-status`、
+  Cordis 4.0.0-rc.12、`ctx.deepseekAuth`、Node ≥24.22.3 而本机 v24.21.0）。
+- **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
+  `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
+  `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。

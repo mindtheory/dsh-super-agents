@@ -1068,3 +1068,86 @@ find <baseDir> -maxdepth 1 -name 'dsh-*' -printf '%f %T@\n' | LC_ALL=C sort | sh
 - **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
   `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
   `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。
+
+---
+
+## 2026-11-26 · 上游第四轮全冻结（连上游 main 也无提交）；LobeHub 64 提交无同构对象（无代码改动）
+
+**结论**：无更新可落地——六路读数全冻结，LobeHub 64 个提交无可移植项。本轮只更新基线（含一处分支口径纠正）。
+
+### 一、上游读数：alpha.2 之后连续第四轮冻结，本轮新增「上游 main 提交」这一路
+
+| 源 | 读数 | 对比基线 |
+| --- | --- | --- |
+| `dsh --version` / `dsh/package.json` | `0.2.1-rc.2` | 相等 |
+| GitHub releases 前三 | `dsh-v0.2.3-alpha.2`(11-22T11:00:39Z) / `alpha.1`(03:19:36Z) / `rc.5`(11-18T12:51:39Z) | 相等，无新发布 |
+| npm dist-tags | `next`=`latest`=`0.2.2-rc.5`、`alpha`=`0.2.3-alpha.2` | 相等 |
+| npm registry `time` | rc.5 `2026-11-18T13:17:23.604Z`、alpha.1 `2026-11-22T03:45:26.697Z`、alpha.2 `2026-11-22T09:57:12.419Z`、`time.modified` `2026-11-22T09:57:12.602Z` | **逐项相等** ⇒ 既非新发布也非 promote |
+| 上游 repo 提交（新增读数） | `commits?per_page=5` 首项 `4b399c39a6`(2026-11-22T08:50:28Z，alpha.2 release 合并) | 上游 main 自 alpha.2 后无新提交 |
+| 原型 repo | `8c32a9dc5d72`(2026-10-31T12:05:39Z) | 无新提交 |
+
+本机包：`find <baseDir> -maxdepth 1 -name 'dsh-*' | wc -l` = **294**（条目总数 305 未变）；
+全树指纹 `5eaa8e86c696e814138154f40d8c1bc66618a57bc1d83f6f9697e8ba01ae7d7e`（294 项，与基线一致）；
+`-newermt 2026-10-22` 命中 **0**；全树最新 mtime 仍 `2026-10-21T02:12:22.412Z`；
+9 个关注包（tracked 4 + resolvedTracked 5）源码 mtime 与基线**逐项完全相等**。
+
+### 二、LobeHub：分支口径纠正（canary 而非 main）+ 64 个提交六簇对平 8+25+12+10+5+4
+
+区间 `8991f18490`(11-25T17:21:37Z) → `9f741bc3ca`(11-26T16:55:23Z)。
+
+**口径纠正**：`lobehub/lobehub` 的 `default_branch` 是 **canary**，不是 main。`commits` 端点不带 sha 时默认读 canary，
+所以 `since=2026-11-25T17:21:37Z&per_page=100` 返回 65 行（末行就是基线首项自身）⇒ 新增 **65−1=64**；
+另用 `compare/8991f18490...canary` 独立复核 **ahead_by=64 / behind_by=0**，两口径对平。
+（顺带记一个陷阱：若拿 `compare/8991f18490...main` 复核会得到 `ahead_by=0 / behind_by=59`——因为 main 停在 11-24 的
+`🚀 release: 20261124 (#23789)`，与 canary 区间无关；这个读数不能用来判断"是否有新提交"。）
+
+分簇（64 个唯一 sha，去重后无重复、无遗漏，簇内相加 8+25+12+10+5+4=64 已对平）：
+
+- **① Channel / 人-Agent 会话 8 个**（`a13ba38b41` Telegram 话题内回复、`9ff4fa5d2e` 侧栏开联动任务/Agent、`880bf71bd6` 权限申请实时状态、
+  `27469aeb83` 未读数剔旁观 Thread、`726db63e01` 移除代 Agent 发消息、`5f6e4c24be` 访客附件、`12a18c71f0` /compact 限定 Thread、
+  `c8d56f2a01` 压缩分隔线+可滚动历史）→ 本插件无 Channel / 多用户会话 / 压缩线程对象。
+- **② 呈现 / 客户端 25 个**（`9f741bc3ca`、`713039e5d8`、`582d388a26`、`5a2f19771d`、`4aab028a63`、`774caae173`、`8184822fb6`、
+  `bd8ffabdfc`、`4457a795a2`、`c18d56079d`、`8b03c84d94`、`cfca8cc742`、`d2638aef28`、`d0eda9edd3`、`6712249775`、`2976cad313`、
+  `4fe47c0648`、`79743a8efb`、`8051b00ff8`、`560893e0ac`、`138f6cc42c`、`a2349b13b4`、`e5275434c0`、`f34569cbb0`、`f884fb5cde`）
+  → 宿主 UI / store，无对应面。
+- **③ 运行层 / 工具 / 模型 12 个**（`8d1e584f1f`、`939836cd19`、`e92fba2001`、`4e977f22ec`、`cd2129efb8`、`78e42e2232`、`2b7c9a7ce5`、
+  `34359deea5`、`a3dbfad74c`、`a3a3eafa1a`、`a08977d1b9`、`1e49afa242`）→ 宿主 model-runtime / agent-runtime / 异种 agent 适配器。
+- **④ 设备 / CLI / DB / 沙箱 / API 10 个**（`4e2d7a6fa3`、`6fc7cc7274`、`0e3d2e44e0`、`403d72ef2f`、`b3dce485a7`、`66cf3a3001`、
+  `bba0adc27e`、`d9ee0162eb`、`8974470e7c`、`c7dd18ef2e`）→ 宿主基础设施。
+- **⑤ 订阅 / 计费 / i18n 5 个**（`de87ee13ac`、`796c4a3219`、`6e3ce9631f`、`9f9969c1db`、`ca4ee6f77c`）→ 本插件无计费面。
+- **⑥ 测试 / CI 4 个**（`847e757c69`、`d3fc9c1d1c`、`00613e470d`、`f17691a3b5`）→ 无关。
+
+**四项专门核对（标题像调度/运行/记忆，读完 diff 才判）：**
+
+1. `939836cd19` #23284「disable Claude Code CronCreate」：新增 `claudeCodeDisallowedTools.ts`(+19)，只是把
+   `AskUserQuestion`/`Monitor`/`ScheduleWakeup` 抽成常量并加入 `CronCreate`，理由写得很清楚——「CC 的 cron job 只在该会话空闲且打开时触发，
+   LobeHub run 回复完就退出 ⇒ 任务永不触发，模型却告诉用户已排期」。本插件 `sa_schedule` 是**插件级持久化调度**（落 DB/journal，到点起独立 run），
+   会话结束后照常触发 ⇒ 同构性不成立，不移植。
+2. `4e977f22ec` #23363「stop LLM calls before the step invocation is killed」：新增 `invocationDeadline.ts`(+61)、`stepOutputCap.ts`(+53)，
+   是宿主在 step 被杀前主动中止 LLM 流。本插件 run 超时已 `setTimeout → controller.abort()` 并结算 `ERR_RUN_TIMEOUT`
+   （与取消共用同一个 AbortSignal），**无此缺口**。
+3. `a08977d1b9` #23862「userMemories 不再把 system prompt 当 user prompt 重复发」：修的是把整份指令模板同时渲染进 system 与 user 两条消息
+   （每次抽取双份 payload）。本插件 `buildTaskPrompt` 只拼 persona+playbook+任务+产物契约，`systemPrompt.section` 是插件级工具用法说明，
+   两者内容不重叠 ⇒ 无同类缺陷。
+4. `e92fba2001` #22438「converge batched todo calls and pause todo-only loops」：859 行里 431 行是测试，主体是 `PlanRuntime` 的 todo 收敛，
+   本插件无 todo 工具 ⇒ 无对象。
+
+另：`8d1e584f1f`/`cd2129efb8` 属宿主 model-runtime 端点工具锚定与路由器同通道重试；`34359deea5` 属宿主 web-crawler 反爬页面判定；
+`1e49afa242` 涉设备凭据（安全面，按红线只观察不自动做）。
+
+### 三、行动：本轮无代码改动
+
+- 基线测试在 /tmp 副本复跑（`cp -r` 仓库 → `ln -sfn <dsh>/node_modules` → 在 /tmp 内执行，仓库目录不建 node_modules）：
+  `node --test test/unit.test.js` → **50/50 pass**（fail 0）；
+  `node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+- 只改 `state.json`（+36/−22）与本节日志，作为基线 chore 提交推送。
+- 本轮未见需要人工裁决的新增项；「不为了有改动而改动」沿用前三轮判定。
+
+### 四、待人工 / 遗留（沿用，无新增）
+
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：仍待人工（红线：不改 DSH 安装目录）；迁移清单见
+  `state.json → dsh.upstream.upgradeWatchlist`（会话 cwd 委派参数移除、会话状态新包 `dsh-client-ui-session-status`、
+  Cordis 4.0.0-rc.12、`ctx.deepseekAuth`、Node ≥24.22.3 而本机 v24.21.0）。
+- **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
+  `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
+  `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。

@@ -1151,3 +1151,99 @@ find <baseDir> -maxdepth 1 -name 'dsh-*' -printf '%f %T@\n' | LC_ALL=C sort | sh
 - **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
   `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
   `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。
+
+## 2026-11-27 · 上游第五轮全冻结（六路读数与 11-26 逐项相同）；LobeHub 42 提交无同构对象（无代码改动）
+
+**结论**：无更新可落地——DSH 上游六路读数与上轮逐项相同（alpha.2 之后连续第五轮），LobeHub 42 个提交经八项专门核对无可移植项。
+本轮无代码改动，只更新 `state.json` 与本节日志。
+
+### 一、上游读数：第五轮全冻结，没有新发布、没有 promote、上游 main 无新提交
+
+| 源 | 读数 | 对比基线 |
+| --- | --- | --- |
+| `dsh --version` / `dsh/package.json` | `0.2.1-rc.2` | 相等 |
+| GitHub releases 前三 | `dsh-v0.2.3-alpha.2`(11-22T11:00:39Z) / `alpha.1`(03:19:36Z) / `rc.5`(11-18T12:51:39Z) | 相等，无新发布 |
+| npm dist-tags | `next`=`latest`=`0.2.2-rc.5`、`alpha`=`0.2.3-alpha.2` | 相等 |
+| npm registry `time` | rc.5 `2026-11-18T13:17:23.604Z`、alpha.1 `2026-11-22T03:45:26.697Z`、alpha.2 `2026-11-22T09:57:12.419Z`、`time.modified` `2026-11-22T09:57:12.602Z` | **逐项相等** ⇒ 既非新发布也非 promote |
+| 上游 repo 提交 | `commits?per_page=5` 首项 `4b399c39a6`(2026-11-22T08:50:28Z，alpha.2 release 合并) | 上游 main 自 alpha.2 后无新提交 |
+| 原型 repo | `8c32a9dc5d72`(2026-10-31T12:05:39Z) | 无新提交 |
+
+本机包：`baseDir` 305 个目录条目（`dsh-*` 294 个 + 非 `dsh-*` 依赖 11 个，两个口径不混用）；
+全树指纹 `find <baseDir> -maxdepth 1 -name 'dsh-*' -printf '%f %T@\n' | LC_ALL=C sort | sha256sum`
+= `5eaa8e86c696e814138154f40d8c1bc66618a57bc1d83f6f9697e8ba01ae7d7e`（294 项，与基线一致，本机未升级故不变）；
+`-newermt 2026-10-22` 命中 **0**；全树最新 mtime 仍 `2026-10-21T02:12:22.412Z`（`dsh-experimental-inspector/README.i18n.yaml`）；
+9 个关注包（tracked 4 + resolvedTracked 5）源码 mtime 与基线**逐项完全相等**（全部仍是 10-21T02:12Z 那一批）。
+
+### 二、LobeHub：42 个提交五簇对平 6+19+9+7+1
+
+区间 `9f741bc3ca`(11-26T16:55:23Z) → `ac177d8364`(11-27T17:58:33Z)。
+
+**双口径对平**：`commits?since=2026-11-26T16:55:23Z&per_page=100`（不带 sha ⇒ 默认读 `default_branch=canary`）
+返回 **43 行**，末行即基线首项自身 ⇒ 新增 **43−1=42**；另用 `compare/9f741bc3ca...canary` 复核
+**ahead_by=42 / behind_by=0**，对平。43 行 sha 去重后 43 个唯一值（含基线首项），无重复、无遗漏。
+
+分簇（簇内相加 6+19+9+7+1=42 已对平）：
+
+- **① Channel / bot / 分享面 6 个**（`7b92db59e9` 共享 Agent 可主动私信成员、`dad1ca2b81` 同名 Channel 区分+删除项目保留名字、
+  `0de635e5f3` 闲置 IM bot 睡眠与唤醒、`97a842ddbb` 访客打赏位、`c8e0e1a782` 分享设置骨架宽、`6a13ddc143` 移除的旧主 Agent 不再算成员）
+  → 本插件无 Channel / 多用户 / 分享 / IM 长连接对象。
+- **② 呈现 / 客户端 19 个**（`fb4112848d`、`9efbc41937`、`962e723377`、`418f78aac4`、`6f3b5c12bb`、`036e00a720`、`661feee465`、
+  `a720d867c3`、`74576ed530`、`99daf6decb`、`21bc65fd5c`、`414a96048f`、`6a62b2df20`、`7ef3de17ea`、`0a5379d383`、`9727e280d1`、
+  `8550161d4f`、`c889a6bc55`、`36a8c377c8`）→ 宿主 UI / store / 构建产物，无对应面。
+- **③ 运行层 / 工具 / 模型 9 个**（`ac177d8364` reasoning effort 收进 model card、`e0ca2fb2c2` steer 不了就重启、`56af1868f5` prompt cache
+  过期提示、`81ae1e5ee3` 动态路由器带 request metadata、`6d13859c0f` 中途进入目录后加载 agent 文件、`a1a48a2850` 渲染计数/堆增长门控、
+  `c02985aaf8` OTEL 指标丢弃、`dbe2046a1f` token 累计改 bigint、`a8de592caf` MCP 持久化 Form/URL elicitation）
+  → 宿主 model-runtime / agent-runtime / MCP。
+- **④ 设备 / CLI / DB / 插件 / 验收 7 个**（`1a24804a32` acceptance skill v0.11.0、`b58afeb793` 退役 legacy plugin 命令别名、
+  `32892bf2ed` / `fa4e5cfc7d` 终端证据采集与合并输出、`4f1ce387f8` 每 run agent 凭据+设备审计+token 脱敏、
+  `439a5bd619` 移除 legacy plugin edit 命令、`1e5c346201` legacy MCP 插件迁 connector）→ 宿主 CLI / 设备网关。
+- **⑤ 订阅 / 计费 1 个**（`b990069287` 套餐名对齐解锁的档位）→ 本插件无计费面。
+
+**八项专门核对（标题像调度/运行/记忆，读完 diff 才判，全部同名不同物或已有等价更保守实现）：**
+
+1. `e0ca2fb2c2` #24029「restart agents that can't steer when a follow-up is sent」——最像可移植项的一个。
+   新增 `steerRestart.ts`(+127)/`sendQueuedNow.ts`(+215) 与设置项 `general.restartUnsteerableRun`，
+   语义是「已知该 run 中途不收消息时**掐掉它**、在同话题起新一轮」，且 run 能力未知时仍排队。
+   本插件 `deliverSay` 走的是**非破坏式**路径：运行中先试 `steer`，仅当宿主确定性拒绝
+   （`session/steer-unavailable` 且无活跃 turn）才降级 `queue`，不猜、不杀 run（`sa_run cancel` 是独立显式动作）
+   ⇒ 目标一致（不让追问无谓等待/丢失）、手段更保守，**不移植**。
+2. `0de635e5f3` #24003「idle persistent bots can sleep, with wake paths」：`botSleep.ts`(+71) 按 `last_active_at`
+   断开闲置 IM bot 的长连接（免费 2 周 / 付费 1 月），本质是长连接资源与套餐计费。本插件无长连接、无套餐，
+   `sa_schedule` 到点直接起 run ⇒ 无对象。
+3. `56af1868f5` #24013「warn before an idle conversation re-reads its expired prompt cache」：宿主 anthropicMessages
+   的 cache TTL 元数据与 UI 提示。本插件不发起 LLM 调用、不持有 prompt cache ⇒ 无对象。
+4. `dbe2046a1f` #23967 token 累计 int4→bigint（迁移 0231）：本插件不做 token 计数、无 Postgres（journal/JSON 落盘）⇒ 无溢出面。
+5. `6d13859c0f` #23959「load agent files from directories entered mid-run」：宿主 tool-runtime/device-control 的
+   agent 文件发现（`discoveredAgentFiles.ts` +250）。本插件角色卡是配置数据、无 agent 文件体系 ⇒ 无对象。
+6. `a8de592caf` #21750 MCP durable Form/URL elicitation（130+ 文件、新增 `packages/mcp-elicitation`）：本插件不接 MCP ⇒ 无对象。
+7. `6a13ddc143` #23992「移除的旧主 Agent 残留于成员列表」：属「删除后遗留引用」家族。本插件 11-15/11-16 已落地两条等价收口
+   （调度被拒记 `skippedCount`/`lastSkipReason` 而非级联删除、启动清扫把孤儿 `queued` run 落 `failed` + `ERR_RUN_AGENT_*`），
+   刻意保留可见、不静默清除 ⇒ 非缺陷。
+8. `dad1ca2b81` #24035「同名 Channel 区分」：本插件 agent 允许重名，但一切按 id 寻址（`sa_run`/`sa_schedule`/面板均用 `agentId`），
+   重名不影响正确性，只是面板显示优化 ⇒ 不为一处 UI 便利改动。
+
+另：`4f1ce387f8` 涉设备凭据与 token 脱敏（安全面，按红线**只观察不自动做**）；`81ae1e5ee3`/`ac177d8364` 属宿主模型路由；
+`1a24804a32` 是 acceptance skill 版本号 bump，与本插件 `skills/` 无关。
+
+### 三、Web 检索
+
+仍无 alpha.2 之后的新官方 super agent 能力或本插件相关可移植资讯。官方/媒体内容还是 alpha.2 之前那一批
+（11-02 央广「DeepSeek 发布 Super-agent 架构」、阿里云/搜狐理念解读）。第三方生态侧本轮出现此前未登记的包：
+`TianzeLuo/dsh-super-agent`（Router/Worker + 看板）、`oxmumu3/dsh-superagent`、`aowind--dsh-super-agent`（dshplugin.online）、
+`NattoCB/dsh-plugin-superagent`（dshhub.org）——均第三方、非官方，功能与本插件重叠，按监控范围**只登记不移植**。
+
+### 四、行动：无代码改动，基线测试在 /tmp 副本复跑
+
+- `cp -r` 仓库到 `/tmp/w9` → `rm -rf .git` → `ln -sfn <dsh install>/node_modules`（**仓库目录内不建 node_modules**）。
+- `node --test test/unit.test.js` → **50/50 pass**（fail 0 / skipped 0）。
+- `node test/smoke.test.mjs` → `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`。
+- 只改 `docs/watch/state.json`（+37/−23）与本节日志，作为基线 chore 提交推送。
+
+### 五、待人工 / 遗留（沿用，无新增）
+
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.x**：仍待人工（红线：不改 DSH 安装目录）；迁移清单见
+  `state.json → dsh.upstream.upgradeWatchlist`（会话 cwd 委派参数移除、会话状态新包 `dsh-client-ui-session-status`、
+  Cordis 4.0.0-rc.12、`ctx.deepseekAuth`、Node ≥24.22.3 而本机 v24.21.0）。
+- **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
+  `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
+  `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。

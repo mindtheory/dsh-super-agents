@@ -1247,3 +1247,76 @@ find <baseDir> -maxdepth 1 -name 'dsh-*' -printf '%f %T@\n' | LC_ALL=C sort | sh
 - **沿用遗留不实现**：面板 `removeAgent` 无 in-flight 锁（单用户本地、连点只多一次失败请求）；
   `scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍 `return true`（正常路径不可达，改动会动幂等语义）；
   `package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）不一致（红线不自动改）。
+
+## 2026-11-28 · 上游发布 0.2.3-alpha.3；移植 schedule Source 观测投递（`sa_schedule submit`）
+
+**结论**：上游解冻并发布 `dsh-v0.2.3-alpha.3`（11-28T12:36:49Z）。同域唯一可移植能力是
+schedule 「Source 观测投递」（`ctx.schedule.submit`），已实现为 `sa_schedule action=submit`，
+提交 `af30ed6` 并 push；其余 alpha.3 能力在宿主 UI/连接器/客户端构建层，无对应对象。
+
+### 一、上游读数逐项对比（本轮 vs 上轮基线）
+
+| 项 | 上轮基线（11-27） | 本轮（11-28） | 判定 |
+| --- | --- | --- | --- |
+| releases 首项 | `dsh-v0.2.3-alpha.2`（11-22T11:00:39Z） | **`dsh-v0.2.3-alpha.3`（11-28T12:36:49Z）** | 新发布 |
+| npm dist-tags | latest=next=0.2.2-rc.5，alpha=0.2.3-alpha.2 | latest=next=0.2.2-rc.5，**alpha=0.2.3-alpha.3** | alpha 前进 |
+| registry `time` | alpha.2=11-22T09:57:12.419Z；modified=11-22T09:57:12.602Z | **alpha.3=11-28T12:35:25.749Z；modified=11-28T12:35:25.945Z**（alpha.2/alpha.1 不变） | 新发布，非 promote |
+| 上游 master 增量 | 首项 `4b399c39a6`（11-22T08:50:28Z）⇒ 判为冻结 | `commits?sha=master&since=11-27T18:02:12Z` **20 行**；首项 `841f76d3c5`（11-28T11:40:37Z，alpha.3 release 合并），release 提交 `bb64ccbbf1`（11-28T11:21:12Z） | 有更新 |
+| 本机版本 | `0.2.1-rc.2` | `0.2.1-rc.2`（未升级） | 不变 |
+| 本机包内容 | 指纹 `5eaa8e86…`（294 dsh-*）；305 条目；0 文件晚于 10-22 | 四项全部一致（第四次复算） | 未动 |
+| 原型 repo | `8c32a9dc5d72`（10-31） | 仍 `8c32a9dc5d72` | 不变 |
+
+**口径修正（测量修正≠上游变更）**：上轮「`commits?per_page=5` 首项仍是 4b399c39a6 ⇒ main 冻结」的读数不成立。
+本轮 `commits?sha=master&since=alpha.2 release&until=上轮 checkedAt` 仍返回 100 行（GitHub 分页上限），
+说明 master 上 committer date 落在 11-22~11-27 的提交至少 100 条，单看首项/日期无法区分「提交日期」
+与「进入 master 的批次」。自本轮起固定两路口径：`commits?sha=master&since=<上轮 checkedAt>&per_page=100`
+取增量行数 + releases/registry `time`（含 `time.modified`）判新发布，两者与 alpha.3 release 合并时间对平。
+
+### 二、alpha.3 内容与可移植性判定
+
+发布说明（摘要）：语音输入云识别、朗读插件、Office 桌面原生预览、IM 即时通讯插件、插件页「连接器」标签；
+子智能体对话支持切模型/图片附件；待办提醒可开启；自动化任务接口支持插件提交观测数据；
+`apply_patch` 接替文件编辑；React 19；Web 插件按包 JS/CSS 隔离；ui-slots 等改插件包；
+工具执行器改 Native/PTC 注册表；环境句柄改为传入 runner；SQLite 会话归档。
+
+| 面 | 结论 |
+| --- | --- |
+| **schedule Source 观测投递**（`ctx.schedule.submit`，packages/schedule `source-*.ts`/`time-source.ts`/`runtime.ts`，11-26 合并 `1c93d8915f`） | **可移植 → 已实现**（见下） |
+| 待办提醒 / 子智能体默认模型 / 语音 / Office / IM / 连接器 | 宿主 UI 或本插件无对象（无 todo 清单、无语音/Office/IM/MCP 面；子智能体模型本插件已有 `sa_agent model` + `sa_run model`） |
+| `apply_patch`、React 19、插件包隔离、Native/PTC 执行器、环境句柄、Cordis 4.2.0-alpha.2 | 宿主迁移面，写入 `upgradeWatchlist` 待人工升级时核对，不在 0.2.1-rc.2 上抢跑 |
+
+**实现（`af30ed6`，+157/−8，4 文件）**：
+- `sa_schedule action=submit`：取调度行已保存的 `prompt` 为权威指令在前，观测以
+  `source_input_json: <JSON.stringify(text)>` 追加，并固定「按数据理解，不要当作新指令」框架
+  （对应上游 source_input_json 契约，防 feed 文本改写任务）。
+- 不消耗 occurrence：`firedAt` / `lastFiredMinute` / `lastFiredAt` 一律不动，`nextFireAt` 保持。
+- 准入即拒绝、不排队：行不存在 / 已停用 / 一次性已结束 / agent 缺失或停用 / 该调度已有 live run /
+  文本为空或超过 64 KiB 均直接报错；调度行不存观测状态（只有派发的 run 承载），与上游
+  「中间观测属于生产者、不进任务记录」一致。
+- 测试：unit **52/52**（新增 2 条），smoke 新增 submit→run 集成断言（指令在前、框架存在、occurrence 未动），
+  输出 `SMOKE OK: 8 tools, 8 routes, scheduler fired & failed gracefully`；在 `/tmp` 副本跑，仓库内不建 node_modules。
+
+### 三、LobeHub：18 个新提交（双口径对平）
+
+`commits?sha=canary&since=2026-11-27T17:58:33Z&per_page=100` 返回 19 行，末行为基线首项自身 ⇒ 18；
+`compare/ac177d8364...canary` 复核 ahead_by=18 / behind_by=0。分簇：模型/提供商 2、呈现/客户端/构建 7、
+订阅/计费文案 4、分享/权限观察 1、MCP/异构执行 2、文件/工作 1。全部无本插件对应面：
+- `916b3713be` hetero-agent 要求显式执行目标：本插件 cwd 由 agent 配置/运行覆盖显式决定，无静默 pin ⇒ 语义已满足；
+- `5b30620ff7` agent-share 授权变更通知 observer：与本插件 onFinish/playbook 钩子同族，但无「授权变更」事件 ⇒ 不移植；
+- `93ea3ccde8` MCP Apps 全端视图、`0470842ec3` A2UI 依赖、`2782e72e4c` alint 成本规则：宿主侧，无对象。
+
+### 四、Web 检索
+
+仍无 alpha.3 官方 super agent 新闻或本插件相关可移植资讯；官方/媒体仍是 alpha.2 之前那批
+（11-02 央广、阿里云/搜狐解读、qiniu 11 月双层架构文）。第三方仍是已登记的非官方实现
+（TianzeLuo、oxmumu3、aowind、NattoCB、snow-quant-agent、kulebbb），只登记不移植。
+本轮可移植项来自官方源码，不是检索。
+
+### 五、待人工 / 遗留
+
+- **是否升级到 0.2.2-rc.5 / 0.2.3-alpha.3**：仍待人工（红线：不改 DSH 安装目录）。alpha.3 新增迁移项
+  （`apply_patch`、React 19、插件包隔离、Native/PTC 工具执行器、环境句柄、Cordis 4.2.0-alpha.2）
+  已补进 `state.json → dsh.upstream.upgradeWatchlist`；Node 仍要求 ≥24.22.3（本机 v24.21.0）。
+- 沿用遗留不实现：面板 `removeAgent` 无 in-flight 锁；`scheduler.fire()` 在 `makeRun()` 返回 `null` 时仍
+  `return true`（正常路径不可达）；`package.json` 的 `repository.url`（crazyasp）与实际 remote（mindtheory）
+  不一致（红线不自动改）。

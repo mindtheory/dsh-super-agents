@@ -11,11 +11,11 @@ import { apply } from "../index.js";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sa-smoke-"));
 
-const registered = { tools: [], routes: [], sections: [], skills: [], effects: [] };
+const registered = { tools: [], toolDefs: [], routes: [], sections: [], skills: [], effects: [] };
 const fakeWebServer = { register: (r) => { registered.routes.push(r); return () => {}; } };
 
 const ctx = {
-  tools: { register: (t) => registered.tools.push(t.name) },
+  tools: { register: (t) => { registered.toolDefs.push(t); registered.tools.push(t.name); } },
   systemPrompt: { section: (s) => registered.sections.push(s.name) },
   skills: { registerProvider: (f) => registered.skills.push(typeof f === "function" ? f() : f) },
   effect: (fn, label) => registered.effects.push(label),
@@ -67,6 +67,28 @@ assert.equal(runs[0].status, "failed"); // sessionController absent in fake ctx 
 assert.ok(runs[0].error.includes("sessionController"));
 const sched = JSON.parse(fs.readFileSync(schedFile, "utf8"));
 assert.ok(sched[0].firedAt, "one-shot marked fired (no refire)");
+
+// source observation: `sa_schedule submit` dispatches a run built from the saved
+// instruction plus the observation, without consuming the schedule's occurrence
+// (upstream dsh-schedule 0.2.3-alpha.3 `ctx.schedule.submit`).
+sched.push({
+  id: "s-2", agentId: "a-1", agentName: "T", prompt: "standing instruction", kind: "every",
+  everySeconds: 3600, enabled: true, createdAt: new Date().toISOString(),
+  lastFiredAt: "", lastFiredMinute: "", firedAt: "",
+});
+fs.writeFileSync(schedFile, JSON.stringify(sched));
+const scheduleTool = registered.toolDefs.find((t) => t.name === "sa_schedule");
+const receipt = JSON.parse(await scheduleTool.execute({ action: "submit", scheduleId: "s-2", text: "observed: build failed" }));
+assert.equal(receipt.ok, true);
+assert.equal(receipt.scheduleId, "s-2");
+const afterSubmit = JSON.parse(fs.readFileSync(path.join(dir, "runs.json"), "utf8"));
+const submitted = afterSubmit.find((r) => r.id === receipt.runId);
+assert.ok(submitted, "submission run recorded");
+assert.equal(submitted.scheduleId, "s-2");
+assert.ok(submitted.taskText.startsWith("standing instruction"), "saved instruction stays first");
+assert.ok(submitted.taskText.includes("source_input_json"), "observation is framed as data");
+const untouched = JSON.parse(fs.readFileSync(schedFile, "utf8")).find((s) => s.id === "s-2");
+assert.equal(untouched.lastFiredAt || "", "", "submission consumed no occurrence");
 
 console.log("SMOKE OK:", registered.tools.length, "tools,", registered.routes.length, "routes, scheduler fired & failed gracefully");
 process.exit(0);

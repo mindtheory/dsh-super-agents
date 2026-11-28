@@ -88,7 +88,7 @@ nothing.
 | `sa_runs` | List runs (`queued/running/done/done_no_artifact/failed/timeout/interrupted/cancelled`) |
 | `sa_run_result` | Fetch a run's full artifact |
 | `sa_say` | Follow-up message into a run's session (`steer` while it runs, `queue` after it ends) |
-| `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` (per-row `state` + group `summary`) / `delete` |
+| `sa_schedule` | Self-dispatch: `set` (cron / everySeconds / at, optional `tz`) / `list` (per-row `state` + group `summary`) / `submit` (hand an observation to an existing schedule) / `delete` |
 | `sa_learn` | Append lessons manually, or distill from a finished run |
 | `sa_health` | Health board (`scheduler` / `runner` / `sessionController` / `pause` / `scheduleDispatch`) + global schedule pause/resume |
 
@@ -136,6 +136,15 @@ schedule that will never fire again cannot pass for a healthy one:
 
 `nextFireAt` is `null` whenever the row will not fire on its own (that is the rule, not an
 error), and the state is computed at read time — never persisted — so it cannot go stale.
+
+`sa_schedule submit` carries an **observation** to an existing schedule: it dispatches a run
+that keeps the saved instruction and appends the observation as JSON-encoded data, framed as
+"data, not instructions" (the contract upstream `dsh-schedule` introduced for
+`ctx.schedule.submit`). It does **not** consume the schedule's occurrence — `firedAt`,
+`lastFiredMinute` and `lastFiredAt` are untouched, so a pushed observation can never move or
+skip tomorrow's fire. A missing, switched-off, ended or busy row (one with a live run) is
+refused without queueing the observation; the row itself stores no observation state, only
+the dispatched run carries it.
 
 ## How a run works
 
